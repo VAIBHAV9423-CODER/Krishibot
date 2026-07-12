@@ -1,0 +1,32 @@
+# ============================================================
+# IBM watsonx.ai Configuration
+# ============================================================
+# Get your API key from: https://cloud.ibm.com/iam/apikeys
+IBM_API_KEY=7350950a-fd72-4709-b931-8c4576905811
+
+
+# Get your Project ID from: https://dataplatform.cloud.ibm.com/
+WATSONX_PROJECT_ID=fc7a1eb0-a7ed-4f47-98b6-3467a5e8b85b
+
+# IBM watsonx.ai URL (change region if needhed)
+# Options: us-south, eu-de, eu-gb, jp-tok, au-syd
+WATSONX_URL=https://us-south.ml.cloud.ibm.com
+
+# ============================================================
+# Flask Configuration
+# ============================================================
+FLASK_SECRET_KEY=your_super_secret_flask_key_change_this_in_production
+FLASK_DEBUG=False
+FLASK_PORT=5000
+
+# ============================================================
+# Optional: Weather API (OpenWeatherMap - free tier)
+# Get key from: https://openweathermap.org/api
+# ============================================================
+OPENWEATHER_API_KEY=your_openweather_api_key_here
+
+# ============================================================
+# App Configuration
+# ============================================================
+APP_NAME=Smart Farming Advisor
+APP_VERSION=1.0.0
