@@ -1,0 +1,104 @@
+{
+  "irrigation_systems": [
+    {
+      "name": "Drip Irrigation",
+      "hindi": "टपक सिंचाई",
+      "efficiency": "90–95%",
+      "suitable_for": ["Vegetables", "Fruits", "Sugarcane", "Cotton", "Pulses", "Spices"],
+      "advantages": [
+        "Saves 40–60% water compared to flood irrigation",
+        "Reduces weed growth",
+        "Enables fertigation (fertilizer through water)",
+        "Reduces disease incidence",
+        "Works on uneven terrain"
+      ],
+      "cost": "₹45,000–1,20,000/ha (installation)",
+      "subsidy": "50–80% subsidy available under PMKSY Har Khet Ko Pani and state schemes",
+      "maintenance": "Flush lateral pipes weekly. Check emitters for clogging. Maintain filter regularly."
+    },
+    {
+      "name": "Sprinkler Irrigation",
+      "hindi": "स्प्रिंकलर सिंचाई",
+      "efficiency": "75–85%",
+      "suitable_for": ["Wheat", "Groundnut", "Vegetables", "Pulses", "Fodder crops"],
+      "advantages": [
+        "Saves 30–50% water vs flood irrigation",
+        "Suitable for uneven land",
+        "Good for sandy soils with low water retention",
+        "Microclimate management"
+      ],
+      "cost": "₹25,000–60,000/ha",
+      "subsidy": "50–60% subsidy under PMKSY",
+      "maintenance": "Clean nozzles. Check pressure. Operate at optimum pressure (1.5–3 kg/cm2)."
+    },
+    {
+      "name": "Flood/Furrow Irrigation",
+      "hindi": "नाली/बाढ़ सिंचाई",
+      "efficiency": "40–50%",
+      "suitable_for": ["Rice", "Sugarcane", "Fodder crops"],
+      "disadvantages": ["High water consumption", "Waterlogging risk", "Nutrient leaching", "Not suitable for sloping land"],
+      "improvement": "Convert to drip/sprinkler for water savings."
+    }
+  ],
+  "irrigation_scheduling": {
+    "principle": "Irrigate based on soil moisture status and crop water requirement, not fixed calendar schedules",
+    "methods": [
+      {
+        "method": "Feel Method",
+        "description": "Take soil sample at 15 cm depth. Squeeze in hand. If moist ball forms – OK; if dry crumbles – irrigate; if water squeezes out – excess."
+      },
+      {
+        "method": "Tensiometer",
+        "description": "Install at 15 and 30 cm depth. Irrigate when reading crosses 30–40 centibars (crop-specific)."
+      },
+      {
+        "method": "IW/CPE Ratio",
+        "description": "Irrigate when cumulative pan evaporation (CPE) reaches crop-specific threshold. IW:CPE ratio of 1.0 for most field crops."
+      }
+    ],
+    "critical_stages_by_crop": {
+      "wheat": ["Crown Root Initiation (21 DAS)", "Tillering (45 DAS)", "Jointing (65 DAS)", "Flowering (85 DAS)", "Grain Filling (105 DAS)"],
+      "rice": ["Transplanting", "Active Tillering", "Panicle Initiation", "Flowering/Heading", "Grain Filling"],
+      "maize": ["Knee-high stage", "Tasseling", "Silking", "Grain Filling"],
+      "cotton": ["Squaring", "Flowering", "Boll development", "Boll opening"],
+      "sugarcane": ["Germination", "Tillering", "Grand Growth period (May–August)", "Maturation"]
+    }
+  },
+  "water_conservation": [
+    {
+      "technique": "Mulching",
+      "description": "Cover soil surface with organic (straw, dry leaves) or plastic mulch",
+      "benefit": "Reduces evaporation by 30–40%. Controls weeds. Improves soil temperature."
+    },
+    {
+      "technique": "Contour Farming",
+      "description": "Ploughing and planting along contour lines on slopes",
+      "benefit": "Reduces runoff by 50%. Increases water infiltration. Prevents soil erosion."
+    },
+    {
+      "technique": "Farm Pond",
+      "description": "Excavate farm pond to harvest rainwater for supplemental irrigation",
+      "benefit": "Provides critical irrigation during dry spells. Useful for horticulture crops.",
+      "subsidy": "Government provides 50% subsidy for farm pond construction under PMKSY"
+    },
+    {
+      "technique": "Raised Bed Planting",
+      "description": "Plant crops on raised beds with furrows for irrigation",
+      "benefit": "Saves 20–25% water. Better drainage. Improved aeration. Easy intercultural operations."
+    },
+    {
+      "technique": "SRI (System of Rice Intensification)",
+      "description": "Young seedlings transplanted single, wider spacing, intermittent irrigation (AWD)",
+      "benefit": "Saves 30–50% water. Increases yield by 20–30%. Reduces methane emissions."
+    }
+  ],
+  "water_quality": {
+    "EC_tolerance": {
+      "sensitive": "Rice, Beans, Onion, Carrot – EC < 1.5 dS/m",
+      "moderate": "Wheat, Maize, Cotton – EC 1.5–4.0 dS/m",
+      "tolerant": "Barley, Sugarbeet, Date Palm – EC > 4.0 dS/m"
+    },
+    "pH_range": "Ideal 6.5–8.5 for irrigation water",
+    "notes": "High-sodium water (SAR > 10) degrades soil structure. Use gypsum to reclaim sodic soils."
+  }
+}

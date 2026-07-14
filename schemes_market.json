@@ -1,0 +1,132 @@
+{
+  "government_schemes": [
+    {
+      "name": "PM-KISAN (Pradhan Mantri Kisan Samman Nidhi)",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "benefit": "₹6,000 per year direct income support in 3 equal installments of ₹2,000",
+      "eligibility": "Small and marginal farmers with cultivable land up to 2 hectares",
+      "how_to_apply": "Visit Common Service Centre (CSC) or register at pmkisan.gov.in with Aadhaar, land records, and bank account",
+      "helpline": "155261 / 011-23381092",
+      "website": "https://pmkisan.gov.in"
+    },
+    {
+      "name": "PMFBY (Pradhan Mantri Fasal Bima Yojana)",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "benefit": "Crop insurance against natural calamities, pests, and diseases. Premium: 2% for Kharif, 1.5% for Rabi, 5% for horticulture",
+      "eligibility": "All farmers growing notified crops in notified areas",
+      "how_to_apply": "Apply through bank, CSC, or on pmfby.gov.in before cutoff date",
+      "important": "Loanee farmers are automatically enrolled. Non-loanee must apply separately.",
+      "helpline": "01123382012",
+      "website": "https://pmfby.gov.in"
+    },
+    {
+      "name": "PMKSY (Pradhan Mantri Krishi Sinchayee Yojana)",
+      "ministry": "Ministry of Jal Shakti / Agriculture",
+      "benefit": "Subsidy on drip and sprinkler irrigation installation. 55–80% subsidy for small/marginal farmers.",
+      "tagline": "Har Khet Ko Pani, More Crop Per Drop",
+      "components": ["Accelerated Irrigation Benefits Programme (AIBP)", "AHAR – small and medium irrigation", "Watershed development", "Per Drop More Crop (microirrigation)"],
+      "how_to_apply": "Apply through Agriculture Department or at pmksy.gov.in",
+      "website": "https://pmksy.gov.in"
+    },
+    {
+      "name": "Soil Health Card Scheme",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "benefit": "Free soil testing and health card with nutrient status and fertilizer recommendations for each farm",
+      "eligibility": "All farmers",
+      "how_to_apply": "Submit soil sample at KVK, Agriculture Department or mobile lab. Collect card in 2–3 weeks.",
+      "frequency": "Once every 2 years",
+      "website": "https://soilhealth.dac.gov.in"
+    },
+    {
+      "name": "eNAM (National Agriculture Market)",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "benefit": "Online trading platform connecting farmers to buyers across India. Better price discovery, reduced intermediary cost.",
+      "eligibility": "Farmers in eNAM-connected mandis",
+      "registration": "Register at enam.gov.in with Aadhaar and bank details",
+      "website": "https://enam.gov.in"
+    },
+    {
+      "name": "Kisan Credit Card (KCC)",
+      "ministry": "Ministry of Finance / Agriculture",
+      "benefit": "Short-term credit for crop production at 4% interest rate (with interest subvention). Cover for input costs.",
+      "limit": "Up to ₹3 lakh at 4% (with ₹1.5 lakh interest subvention)",
+      "eligibility": "All farmers, sharecroppers, tenant farmers, SHG members",
+      "how_to_apply": "Apply at nearest nationalized/cooperative/RRB bank with land records and Aadhaar",
+      "helpline": "Kisan Call Centre: 1800-180-1551"
+    },
+    {
+      "name": "PKVY (Paramparagat Krishi Vikas Yojana)",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "benefit": "₹50,000/ha over 3 years for conversion to organic farming. Covers organic input costs, certification, and marketing.",
+      "eligibility": "Farmer clusters (minimum 50 farmers, 50 acres)",
+      "focus": "Soil health improvement, organic certification (PGS-India), market linkage",
+      "website": "https://pgsindia-ncof.gov.in"
+    },
+    {
+      "name": "RKVY (Rashtriya Krishi Vikas Yojana)",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "benefit": "State-flexible scheme for agriculture development – farm equipment, horticulture, animal husbandry, fisheries",
+      "focus": "Agri-infrastructure, innovation, Agripreneurship",
+      "contact": "State Agriculture Department"
+    }
+  ],
+  "market_information": {
+    "msp_2024_kharif": {
+      "Paddy (Common)": "₹2,300/quintal",
+      "Paddy (Grade A)": "₹2,320/quintal",
+      "Jowar (Hybrid)": "₹3,371/quintal",
+      "Bajra": "₹2,625/quintal",
+      "Maize": "₹2,090/quintal",
+      "Moong": "₹8,682/quintal",
+      "Urad": "₹7,400/quintal",
+      "Groundnut": "₹6,783/quintal",
+      "Sunflower Seed": "₹7,280/quintal",
+      "Soybean": "₹4,892/quintal",
+      "Cotton (Medium)": "₹7,121/quintal",
+      "Cotton (Long)": "₹7,521/quintal"
+    },
+    "msp_2024_rabi": {
+      "Wheat": "₹2,275/quintal",
+      "Barley": "₹1,735/quintal",
+      "Gram (Chickpea)": "₹5,440/quintal",
+      "Lentil (Masur)": "₹6,425/quintal",
+      "Mustard": "₹5,650/quintal",
+      "Safflower": "₹5,800/quintal"
+    },
+    "selling_channels": [
+      {
+        "channel": "APMC Mandi",
+        "description": "State Agricultural Produce Market Committee mandis provide transparent auction. Good for large volumes.",
+        "tip": "Know the current mandi prices before selling. Use mandi mobile apps or agmarknet.gov.in."
+      },
+      {
+        "channel": "eNAM",
+        "description": "Online mandi – sell from your local mandi but reach buyers across India.",
+        "tip": "Clean, sorted, graded produce gets better price on eNAM."
+      },
+      {
+        "channel": "FPO (Farmer Producer Organisation)",
+        "description": "Collective selling through FPO eliminates intermediaries. FPOs can also negotiate processing and export contracts.",
+        "tip": "Join or form an FPO for collective bargaining power."
+      },
+      {
+        "channel": "Contract Farming",
+        "description": "Pre-agreed price with companies (food processing, export houses). Reduces market risk.",
+        "examples": "McCain (potato), ITC (wheat/fruits), Nestle (tomato), Pepsi (potato)"
+      },
+      {
+        "channel": "Direct Sale to Consumer",
+        "description": "Sell directly at weekly markets, own outlet, or through apps (BigBasket, Dehaat, Ninjacart).",
+        "tip": "Add value (cleaning, grading, packing) to get premium price."
+      }
+    ],
+    "price_information_sources": [
+      "Agmarknet: agmarknet.gov.in / app",
+      "eNAM: enam.gov.in",
+      "NCDEX live prices for commodity futures",
+      "State Agriculture Department website",
+      "Kisan Suvidha App (Government)",
+      "1800-180-1551 (Kisan Call Centre)"
+    ]
+  }
+}
