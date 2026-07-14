@@ -1,992 +1,921 @@
-/* ================================================================
-   app.js — Smart Farming Advisor
-   IBM watsonx.ai + Granite | Full Frontend Logic
-   ----------------------------------------------------------------
-   Quality-improved version:
-   - Centralized, timeout-aware fetch helper with visible error states
-     (nothing gets stuck on a spinner forever anymore)
-   - HTML-escaping everywhere dynamic text is inserted (chat replies,
-     server data) to prevent XSS / broken markup
-   - Dynamically generated buttons use data-attributes + event
-     delegation instead of string-interpolated onclick="..." — so a
-     crop/scheme name containing a quote can never break the page
-   - Defensive localStorage access (Safari private mode etc. can throw)
-   - A more robust markdown-ish formatter for chat messages
-   - Light debouncing on repeat-click actions (weather refresh/search)
-   Public API (functions referenced from index.html) is unchanged:
-   showSection, sendMessage, sendQuickQ, handleChatKey, autoResizeTextarea,
-   clearChat, exportChat, toggleVoiceInput, updateContext,
-   sendContextMessage, refreshWeather, loadWeather, askAIPest
-================================================================ */
+/* ===================================================================
+   KrishiBot – Smart Farming Advice Agent
+   Main JavaScript
+   =================================================================== */
 
 'use strict';
 
-// ══════════════════════════════════════════════════════════════
-// CONFIG
-// ══════════════════════════════════════════════════════════════
-const API = {
-  dashboard:    (crop) => `/api/dashboard?crop=${encodeURIComponent(crop)}`,
-  weather:      (city) => `/api/weather?city=${encodeURIComponent(city)}`,
-  mandi:        '/api/mandi',
-  schemes:      '/api/schemes',
-  pests:        '/api/pests',
-  chat:         '/api/chat',
-  quickAdvice:  '/api/quick-advice',
-  clearChat:    '/api/clear-chat',
-};
-
-const FETCH_TIMEOUT_MS = 12000;
-
-// ── Global State ──────────────────────────────────────────────
+// ─── State ─────────────────────────────────────────────────────────
 const state = {
-  currentSection: 'dashboard',
-  selectedCrop:   'wheat',
-  city:           'Delhi',
-  isTyping:       false,
-  recognition:    null,
-  voiceActive:    false,
-  messageCount:   0,
+  currentPanel: 'chat',
+  language: 'en',
+  darkMode: false,
+  isTyping: false,
+  charts: {},
+  marketData: null,
+  schemesData: [],
 };
 
-// ── Crop Emoji Map ────────────────────────────────────────────
-const CROP_EMOJI = {
-  wheat: '🌾', rice: '🍚', maize: '🌽', cotton: '🌿',
-  tomato: '🍅', potato: '🥔', onion: '🧅', soybean: '🫘',
-};
+// ─── DOM helpers ───────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => new Intl.NumberFormat('en-IN').format(n);
 
-const TREND_ICON = {
-  rising:   '<i class="bi bi-arrow-up-circle-fill trend-rising"></i>',
-  falling:  '<i class="bi bi-arrow-down-circle-fill trend-falling"></i>',
-  stable:   '<i class="bi bi-dash-circle-fill trend-stable"></i>',
-  volatile: '<i class="bi bi-exclamation-circle-fill trend-volatile"></i>',
-};
-
-// ══════════════════════════════════════════════════════════════
-// UTILITIES
-// ══════════════════════════════════════════════════════════════
-
-/** Escape a value for safe use in innerHTML text content OR as a
- *  quoted HTML attribute (covers & < > " '). Always use this before
- *  interpolating any server- or user-derived string into markup. */
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function capitalize(str) {
-  return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
-}
-
-function easeOut(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
-
-function debounce(fn, wait = 400) {
-  let timer = null;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), wait);
-  };
-}
-
-function animateNumber(id, target) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const start     = parseInt(el.textContent, 10) || 0;
-  const duration  = 800;
-  const startTime = performance.now();
-
-  function update(ts) {
-    const elapsed  = ts - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const value    = Math.round(start + (target - start) * easeOut(progress));
-    el.textContent = value;
-    if (progress < 1) requestAnimationFrame(update);
-  }
-  requestAnimationFrame(update);
-}
-
-function showToast(message, type = 'success') {
-  const toast = document.getElementById('mainToast');
-  const body  = document.getElementById('toastMessage');
-  if (!toast || !body) return;
-
-  body.textContent = message;
-  toast.className  = `toast align-items-center border-0 toast-${type}`;
-
-  if (window.bootstrap?.Toast) {
-    const bsToast = bootstrap.Toast.getOrCreateInstance(toast, { delay: 3000 });
-    bsToast.show();
-  }
-}
-
-/** Renders a compact "something went wrong" state with a Retry button
- *  inside any container, instead of leaving a spinner forever. */
-function renderError(container, message, onRetry) {
-  if (!container) return;
-  container.innerHTML = `
-    <div class="text-center text-muted py-3">
-      <i class="bi bi-exclamation-triangle-fill d-block mb-2" style="font-size:1.4rem;color:var(--red)"></i>
-      <div class="small mb-2">${escapeHtml(message)}</div>
-    </div>
-  `;
-  if (onRetry) {
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-success-custom btn-sm d-block mx-auto';
-    btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Retry';
-    btn.addEventListener('click', onRetry);
-    container.querySelector('.text-center')?.appendChild(btn);
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-// NETWORK — fetchJSON with timeout + consistent error handling
-// ══════════════════════════════════════════════════════════════
-async function fetchJSON(url, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    if (!res.ok) {
-      throw new Error(`Request failed (${res.status})`);
-    }
-    return await res.json();
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('Request timed out. Please check your connection.');
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-// SAFE LOCALSTORAGE (can throw in private/incognito modes)
-// ══════════════════════════════════════════════════════════════
-function safeGetItem(key, fallback = null) {
-  try {
-    return localStorage.getItem(key) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function safeSetItem(key, value) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* storage unavailable — silently ignore, theme just won't persist */
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-// INIT
-// ══════════════════════════════════════════════════════════════
+// ─── Initialization ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  initTheme();
-  initCropChips();
-  setupGlobalClickDelegation();
-  loadDashboard();
-  loadWeatherSilent();
-  loadMandiPrices();
+  initGreeting();
+  initDarkMode();
+  initChatInput();
+  loadStatus();
+  loadQuickQueries();
+  loadWeather();
+  loadMarketPrices();
   loadSchemes();
-  loadPestGuide();
-  loadAITip();
-  setupDarkModeToggle();
-  setupNavHighlight();
+  initCharts();
+  setInterval(loadStatus, 30_000);
 });
 
-/** One delegated listener handles every dynamically generated button
- *  (data-quick-q). This avoids ever building onclick="...('...')"
- *  strings out of interpolated data, which is both an XSS risk and
- *  breaks outright if the text contains a quote character. */
-function setupGlobalClickDelegation() {
-  document.addEventListener('click', (e) => {
-    const quickQBtn = e.target.closest('[data-quick-q]');
-    if (quickQBtn) {
-      sendQuickQ(quickQBtn.dataset.quickQ);
+// ─── Greeting ──────────────────────────────────────────────────────
+function initGreeting() {
+  const now = new Date();
+  const hour = now.getHours();
+  const greetings = {
+    morning: ['Good Morning! 🌅', 'Suprabhat! 🌄', 'Sat Sri Akal! 🙏'],
+    afternoon: ['Good Afternoon! ☀️', 'Namaste! 🙏', 'Jai Kisan! 🌾'],
+    evening: ['Good Evening! 🌙', 'Namaste! 🙏', 'Jai Hind! 🇮🇳'],
+  };
+  const grpKey = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+  const grp = greetings[grpKey];
+  $('greetingText').textContent = grp[Math.floor(Math.random() * grp.length)];
+  $('greetingDate').textContent = now.toLocaleDateString('en-IN', {
+    weekday: 'long', day: 'numeric', month: 'long'
+  });
+}
+
+// ─── Dark mode ─────────────────────────────────────────────────────
+function initDarkMode() {
+  const saved = localStorage.getItem('krishibot-dark') === 'true';
+  applyDarkMode(saved);
+  $('darkModeBtn').addEventListener('click', () => applyDarkMode(!state.darkMode));
+}
+function applyDarkMode(on) {
+  state.darkMode = on;
+  document.documentElement.setAttribute('data-theme', on ? 'dark' : 'light');
+  $('darkModeIcon').className = on ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+  localStorage.setItem('krishibot-dark', on);
+}
+
+// ─── Language ──────────────────────────────────────────────────────
+$('languageSelect').addEventListener('change', function () {
+  state.language = this.value;
+  showToast(`Language set – next response will be in ${this.options[this.selectedIndex].text}`);
+});
+
+// ─── Panel switching ────────────────────────────────────────────────
+function showPanel(panelId, btnEl) {
+  // Hide all panels
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  // Deactivate sidebar buttons
+  document.querySelectorAll('.sidebar-nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
+
+  // Show target panel
+  const panel = $(`panel-${panelId}`);
+  if (panel) panel.classList.add('active');
+
+  // Mark active nav buttons
+  document.querySelectorAll(`[data-panel="${panelId}"]`).forEach(b => b.classList.add('active'));
+
+  state.currentPanel = panelId;
+
+  // Lazy-load panel data
+  if (panelId === 'weather') loadWeather();
+  if (panelId === 'market')  loadMarketPrices();
+  if (panelId === 'schemes') loadSchemes();
+}
+
+// ─── System status ─────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    const dot  = $('statusDot');
+    const txt  = $('statusText');
+
+    if (data.watsonx?.ready) {
+      dot.className = 'status-dot online';
+      txt.textContent = 'Live';
+      $('modelInfo').textContent = `IBM ${data.watsonx.model?.split('/').pop() ?? 'Granite'} • RAG (${data.rag_chunks} chunks)`;
+    } else if (data.watsonx?.demo_mode) {
+      dot.className = 'status-dot demo';
+      txt.textContent = 'Demo Mode';
+      $('modelInfo').textContent = 'Demo Mode – Add IBM API key for full AI';
+    } else {
+      dot.className = 'status-dot error';
+      txt.textContent = 'Error';
+    }
+  } catch {
+    $('statusDot').className = 'status-dot error';
+    $('statusText').textContent = 'Offline';
+  }
+}
+
+// ─── Quick queries ─────────────────────────────────────────────────
+async function loadQuickQueries() {
+  try {
+    const res = await fetch('/api/quick-queries');
+    const { queries } = await res.json();
+    const container = $('quickQueriesScroll');
+    container.innerHTML = queries.map(q =>
+      `<button class="quick-query-btn" onclick="sendQuickQuery(this)"
+               data-text="${escHtml(q.text)}">
+         ${q.icon} ${escHtml(q.text)}
+       </button>`
+    ).join('');
+  } catch {
+    $('quickQueriesScroll').innerHTML = '';
+  }
+}
+function sendQuickQuery(btn) {
+  const text = btn.dataset.text;
+  $('chatInput').value = text;
+  autoResizeInput();
+  sendMessage();
+}
+
+// ─── Chat ──────────────────────────────────────────────────────────
+function initChatInput() {
+  const input = $('chatInput');
+  input.addEventListener('input', () => {
+    autoResizeInput();
+    $('charCounter').textContent = `${input.value.length}/1000`;
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
   });
 }
 
-// ══════════════════════════════════════════════════════════════
-// THEME (DARK MODE)
-// ══════════════════════════════════════════════════════════════
-function initTheme() {
-  const saved = safeGetItem('theme', 'light');
-  setTheme(saved);
+function autoResizeInput() {
+  const ta = $('chatInput');
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
 }
 
-function setTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  safeSetItem('theme', theme);
-  document.querySelectorAll('#darkModeToggle i, #darkModeToggleMobile i').forEach(icon => {
-    icon.className = theme === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
-  });
-}
-
-function setupDarkModeToggle() {
-  ['darkModeToggle', 'darkModeToggleMobile'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    btn.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      setTheme(current === 'dark' ? 'light' : 'dark');
-    });
-  });
-}
-
-// ══════════════════════════════════════════════════════════════
-// SECTION NAVIGATION
-// ══════════════════════════════════════════════════════════════
-function showSection(name) {
-  document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
-  document.getElementById(`section-${name}`)?.classList.add('active');
-  state.currentSection = name;
-
-  const hero = document.getElementById('heroBanner');
-  const fab  = document.getElementById('fabChat');
-  if (hero) hero.style.display = name === 'dashboard' ? '' : 'none';
-  if (fab)  fab.style.display  = name === 'chat' ? 'none' : 'flex';
-
-  highlightNav(name);
-
-  const navCollapse = document.getElementById('navbarMenu');
-  if (navCollapse?.classList.contains('show') && window.bootstrap?.Collapse) {
-    bootstrap.Collapse.getInstance(navCollapse)?.hide();
-  }
-
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function setupNavHighlight() {
-  highlightNav('dashboard');
-}
-
-function highlightNav(name) {
-  document.querySelectorAll('.nav-link').forEach(link => {
-    const onclickAttr = link.getAttribute('onclick') || '';
-    link.classList.toggle('active', onclickAttr.includes(`'${name}'`));
-  });
-}
-
-// ══════════════════════════════════════════════════════════════
-// CROP CHIPS
-// ══════════════════════════════════════════════════════════════
-function initCropChips() {
-  const crops = ['wheat', 'rice', 'maize', 'cotton', 'tomato', 'potato', 'onion', 'soybean'];
-  const container = document.getElementById('cropChips');
-  if (!container) return;
-
-  container.innerHTML = '';
-  crops.forEach(crop => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `crop-chip ${crop === state.selectedCrop ? 'active' : ''}`;
-    btn.dataset.crop = crop;
-    btn.innerHTML = `${CROP_EMOJI[crop] || '🌱'} ${capitalize(crop)}`;
-    btn.addEventListener('click', () => selectCrop(crop));
-    container.appendChild(btn);
-  });
-}
-
-function selectCrop(crop) {
-  state.selectedCrop = crop;
-
-  // Reliable active-state toggling via data-crop, not fragile text matching
-  document.querySelectorAll('.crop-chip').forEach(c => {
-    c.classList.toggle('active', c.dataset.crop === crop);
-  });
-
-  const ctxCrop = document.getElementById('contextCrop');
-  if (ctxCrop) ctxCrop.value = crop;
-
-  const badge = document.getElementById('currentCropBadge');
-  if (badge) badge.textContent = capitalize(crop);
-
-  loadDashboard();
-  showToast(`${CROP_EMOJI[crop] || '🌱'} Switched to ${capitalize(crop)}`, 'success');
-}
-
-// ══════════════════════════════════════════════════════════════
-// DASHBOARD
-// ══════════════════════════════════════════════════════════════
-async function loadDashboard() {
-  try {
-    const data = await fetchJSON(API.dashboard(state.selectedCrop));
-    renderDashboard(data);
-  } catch (err) {
-    console.error('Dashboard load error:', err);
-    showToast('Could not load dashboard data. Retrying may help.', 'error');
-  }
-}
-
-function renderDashboard(data) {
-  animateNumber('soilScore', data.soil_health_score ?? 74);
-  animateNumber('cropScore', data.crop_health_score ?? 81);
-
-  const tempEl = document.getElementById('tempVal');
-  const humEl  = document.getElementById('humidityVal');
-  if (tempEl && data.weather) {
-    tempEl.textContent = data.weather.temp ?? '--';
-    const tempSub = document.getElementById('tempSub');
-    if (tempSub) tempSub.textContent = data.weather.description ?? '';
-  }
-  if (humEl && data.weather) {
-    humEl.textContent = data.weather.humidity ?? '--';
-    const humSub = document.getElementById('humiditySub');
-    if (humSub) humSub.textContent = 'Relative humidity';
-  }
-
-  // Crop Info
-  const cropBody = document.getElementById('cropInfoBody');
-  if (cropBody && data.crop_info) {
-    const ci = data.crop_info;
-    const cropName = escapeHtml(data.crop);
-    cropBody.innerHTML = `
-      <ul class="info-list">
-        <li><i class="bi bi-calendar-check-fill"></i><span><strong>Season:</strong> ${escapeHtml(ci.season)}</span></li>
-        <li><i class="bi bi-seed-fill" style="color:var(--green-1)"></i><span><strong>Sowing:</strong> ${escapeHtml(ci.sow)}</span></li>
-        <li><i class="bi bi-basket-fill" style="color:var(--accent-2)"></i><span><strong>Harvest:</strong> ${escapeHtml(ci.harvest)}</span></li>
-        <li><i class="bi bi-droplet-half" style="color:var(--blue)"></i><span><strong>Water:</strong> ${escapeHtml(ci.water)}</span></li>
-      </ul>
-      <button type="button" class="btn btn-success-custom btn-sm w-100 mt-3"
-        data-quick-q="Give me complete cultivation guide for ${escapeHtml(cropName)}">
-        <i class="bi bi-robot me-1"></i> Get AI Advice for ${cropName}
-      </button>
-    `;
-  }
-
-  // Mandi
-  const mandiEl = document.getElementById('mandiBody');
-  if (mandiEl && data.mandi) {
-    const m = data.mandi;
-    const trendClass = `trend-${m.trend || 'stable'}`;
-    mandiEl.innerHTML = `
-      <div class="mb-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <span style="font-size:2rem;font-weight:700;color:var(--accent)">${escapeHtml(m.price)}</span>
-          ${TREND_ICON[m.trend] || ''}
-        </div>
-        <div class="text-muted small">Per quintal (MSP/Mandi)</div>
-      </div>
-      <ul class="info-list">
-        <li><i class="bi bi-graph-up"></i><span class="${trendClass}"><strong>Trend:</strong> ${escapeHtml(capitalize(m.trend))}</span></li>
-        <li><i class="bi bi-geo-alt-fill"></i><span><strong>Best Markets:</strong> ${escapeHtml(m.best_market)}</span></li>
-      </ul>
-      <button type="button" class="btn btn-success-custom btn-sm w-100 mt-3" onclick="showSection('mandi')">
-        <i class="bi bi-table me-1"></i> View All Prices
-      </button>
-    `;
-  }
-
-  // Weather Advisory
-  const weatherEl = document.getElementById('weatherBody');
-  if (weatherEl && data.weather) {
-    const w = data.weather;
-    weatherEl.innerHTML = `
-      <div class="d-flex align-items-center gap-3 mb-3">
-        <div>
-          <div style="font-size:1.8rem;font-weight:700;color:var(--accent)">${escapeHtml(w.temp)}</div>
-          <div class="text-muted small">${escapeHtml(w.description)}</div>
-        </div>
-        <div class="vr"></div>
-        <div>
-          <div class="text-muted small"><i class="bi bi-droplet-fill me-1 text-primary"></i>${escapeHtml(w.humidity)} humidity</div>
-          <div class="text-muted small mt-1"><i class="bi bi-wind me-1"></i>${escapeHtml(w.wind)}</div>
-        </div>
-      </div>
-      <div class="ai-tip-card">
-        <div class="tip-header"><i class="bi bi-info-circle-fill"></i> Advisory</div>
-        ${escapeHtml(w.farming_advisory)}
-      </div>
-      <button type="button" class="btn btn-success-custom btn-sm w-100 mt-3" onclick="showSection('weather')">
-        <i class="bi bi-cloud-sun me-1"></i> Full Weather Details
-      </button>
-    `;
-  }
-
-  // Seasonal Tips
-  const tipsEl   = document.getElementById('seasonalTipsBody');
-  const seasonEl = document.getElementById('seasonBadge');
-  if (tipsEl && Array.isArray(data.seasonal_tips)) {
-    if (seasonEl) seasonEl.textContent = data.season ?? '';
-    tipsEl.innerHTML = `<ul class="info-list">
-      ${data.seasonal_tips.map(tip => `<li><i class="bi bi-check-circle-fill"></i><span>${escapeHtml(tip)}</span></li>`).join('')}
-    </ul>`;
-  }
-
-  // Schemes Preview
-  const schemesEl = document.getElementById('schemesPreviewBody');
-  if (schemesEl && Array.isArray(data.govt_schemes)) {
-    schemesEl.innerHTML = `
-      <ul class="info-list">
-        ${data.govt_schemes.map(s => `
-          <li>
-            <i class="bi bi-bank-fill" style="color:var(--accent)"></i>
-            <span><strong>${escapeHtml(s.name)}:</strong> ${escapeHtml(s.benefit)}</span>
-          </li>
-        `).join('')}
-      </ul>
-      <button type="button" class="btn btn-success-custom btn-sm w-100 mt-3" onclick="showSection('schemes')">
-        <i class="bi bi-list-check me-1"></i> View All Schemes
-      </button>
-    `;
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-// WEATHER
-// ══════════════════════════════════════════════════════════════
-async function loadWeatherSilent() {
-  const city = document.getElementById('cityInput')?.value || 'Delhi';
-  state.city = city;
-  try {
-    const data = await fetchJSON(API.weather(city));
-    renderWeatherSection(data);
-  } catch (err) {
-    console.error('Weather error:', err);
-  }
-}
-
-async function loadWeather() {
-  const city = document.getElementById('weatherCitySearch')?.value.trim() || 'Delhi';
-  state.city = city;
-
-  const cityInput = document.getElementById('cityInput');
-  if (cityInput) cityInput.value = city;
-
-  setWeatherLoading();
-  try {
-    const data = await fetchJSON(API.weather(city));
-    renderWeatherSection(data);
-    loadDashboard();
-  } catch (err) {
-    console.error('Weather error:', err);
-    renderError(document.getElementById('weatherAdvisoryBody'), 'Could not load weather. Check the city name and try again.', loadWeather);
-    const card = document.getElementById('weatherMainCard');
-    if (card) card.innerHTML = `<div class="text-center text-white-50 small py-4">Weather unavailable</div>`;
-    showToast('Error loading weather. Check city name.', 'error');
-  }
-}
-
-const refreshWeather = debounce(async function refreshWeatherImpl() {
-  const city = document.getElementById('cityInput')?.value.trim() || 'Delhi';
-  state.city = city;
-  const weatherSearch = document.getElementById('weatherCitySearch');
-  if (weatherSearch) weatherSearch.value = city;
-  await loadWeatherSilent();
-  showToast(`Weather updated for ${city}`, 'success');
-}, 500);
-
-function setWeatherLoading() {
-  const card = document.getElementById('weatherMainCard');
-  const adv  = document.getElementById('weatherAdvisoryBody');
-  if (card) card.innerHTML = `<div class="spinner-custom"><div class="spinner-border text-white"></div></div>`;
-  if (adv)  adv.innerHTML  = `<div class="spinner-custom"><div class="spinner-border text-success"></div></div>`;
-}
-
-function renderWeatherSection(data) {
-  const card = document.getElementById('weatherMainCard');
-  const adv  = document.getElementById('weatherAdvisoryBody');
-  const upd  = document.getElementById('weatherUpdatedAt');
-
-  if (upd) upd.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-
-  if (card) {
-    card.innerHTML = `
-      <div class="weather-temp">${escapeHtml(data.temp)}</div>
-      <div class="weather-desc"><i class="bi bi-cloud-sun me-2"></i>${escapeHtml(data.description)}</div>
-      <div class="weather-detail">
-        <div class="weather-detail-item"><i class="bi bi-droplet-fill"></i>${escapeHtml(data.humidity)}</div>
-        <div class="weather-detail-item"><i class="bi bi-wind"></i>${escapeHtml(data.wind)}</div>
-      </div>
-      <div style="font-size:0.85rem;opacity:0.8;margin-top:8px;">
-        <i class="bi bi-geo-alt-fill me-1"></i>${escapeHtml(data.city)}
-      </div>
-      ${data.note ? `<div style="font-size:0.7rem;opacity:0.6;margin-top:6px;background:rgba(0,0,0,0.1);padding:4px 8px;border-radius:6px;">${escapeHtml(data.note)}</div>` : ''}
-    `;
-  }
-
-  if (adv) {
-    const quickQ = `What farming activities should I do today based on ${data.temp} temperature and ${data.humidity} humidity?`;
-    adv.innerHTML = `
-      <div class="ai-tip-card mb-3">
-        <div class="tip-header"><i class="bi bi-robot"></i> AI Advisory</div>
-        <p class="mb-0">${escapeHtml(data.farming_advisory)}</p>
-      </div>
-      <div class="row g-2">
-        <div class="col-6">
-          <div class="tip-card tip-blue text-center">
-            <i class="bi bi-thermometer-half d-block mb-1"></i>
-            <strong>${escapeHtml(data.temp)}</strong><br><small>Temperature</small>
-          </div>
-        </div>
-        <div class="col-6">
-          <div class="tip-card tip-green text-center">
-            <i class="bi bi-droplet-fill d-block mb-1"></i>
-            <strong>${escapeHtml(data.humidity)}</strong><br><small>Humidity</small>
-          </div>
-        </div>
-      </div>
-      <div class="mt-3">
-        <button type="button" class="btn btn-success-custom btn-sm" data-quick-q="${escapeHtml(quickQ)}">
-          <i class="bi bi-robot me-1"></i> Ask AI for Today's Tasks
-        </button>
-      </div>
-    `;
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-// MANDI PRICES
-// ══════════════════════════════════════════════════════════════
-async function loadMandiPrices() {
-  const container = document.getElementById('mandiTableContainer');
-  try {
-    const data = await fetchJSON(API.mandi);
-    renderMandiTable(data);
-  } catch (err) {
-    console.error('Mandi error:', err);
-    renderError(container, 'Could not load mandi prices.', loadMandiPrices);
-  }
-}
-
-function renderMandiTable(data) {
-  const container = document.getElementById('mandiTableContainer');
-  if (!container) return;
-
-  const rows = Object.entries(data).map(([crop, info]) => {
-    const quickQ = `What is the best strategy to sell ${crop} crop? Current price is ${info.price}`;
-    return `
-      <tr>
-        <td><span class="me-2">${CROP_EMOJI[crop] || '🌱'}</span>${escapeHtml(capitalize(crop))}</td>
-        <td><strong>${escapeHtml(info.price)}</strong></td>
-        <td>${TREND_ICON[info.trend] || ''} <span class="trend-${escapeHtml(info.trend)}">${escapeHtml(capitalize(info.trend))}</span></td>
-        <td>${escapeHtml(info.best_market)}</td>
-        <td>
-          <button type="button" class="btn btn-success-custom btn-sm" data-quick-q="${escapeHtml(quickQ)}">
-            <i class="bi bi-robot"></i> Advice
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  container.innerHTML = `
-    <table class="mandi-table">
-      <thead>
-        <tr>
-          <th>Crop</th>
-          <th>Price (per quintal)</th>
-          <th>Trend</th>
-          <th>Best Market</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
-}
-
-// ══════════════════════════════════════════════════════════════
-// GOVERNMENT SCHEMES
-// ══════════════════════════════════════════════════════════════
-async function loadSchemes() {
-  const grid = document.getElementById('schemesGrid');
-  try {
-    const data = await fetchJSON(API.schemes);
-    renderSchemes(data.schemes || []);
-  } catch (err) {
-    console.error('Schemes error:', err);
-    renderError(grid, 'Could not load government schemes.', loadSchemes);
-  }
-}
-
-function renderSchemes(schemes) {
-  const grid = document.getElementById('schemesGrid');
-  if (!grid) return;
-
-  const schemeIcons = ['bank', 'shield-check', 'clipboard-check', 'droplet', 'phone', 'credit-card', 'building', 'leaf'];
-
-  grid.innerHTML = schemes.map((s, i) => {
-    const quickQ = `Tell me everything about ${s.name} scheme — eligibility, how to apply, and documents needed`;
-    return `
-      <div class="col-md-6 col-lg-4 fade-in" style="animation-delay:${i * 0.08}s">
-        <div class="scheme-card">
-          <div class="d-flex align-items-start gap-3">
-            <div style="width:40px;height:40px;background:var(--accent-light);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-              <i class="bi bi-${schemeIcons[i % schemeIcons.length]}" style="color:var(--accent);font-size:1.1rem;"></i>
-            </div>
-            <div>
-              <h6>${escapeHtml(s.name)}</h6>
-              <p>${escapeHtml(s.benefit)}</p>
-              <button type="button" class="btn btn-success-custom btn-sm mt-2" data-quick-q="${escapeHtml(quickQ)}">
-                <i class="bi bi-robot me-1"></i> Learn More
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-// ══════════════════════════════════════════════════════════════
-// PEST GUIDE
-// ══════════════════════════════════════════════════════════════
-async function loadPestGuide() {
-  const grid = document.getElementById('pestGrid');
-  try {
-    const data = await fetchJSON(API.pests);
-    renderPestGuide(data);
-  } catch (err) {
-    console.error('Pest guide error:', err);
-    renderError(grid, 'Could not load the pest guide.', loadPestGuide);
-  }
-}
-
-function renderPestGuide(data) {
-  const grid = document.getElementById('pestGrid');
-  if (!grid) return;
-
-  grid.innerHTML = Object.entries(data).map(([pest, info], i) => {
-    const quickQ = `How to treat ${pest} in ${info.crop} crop? Explain organic and chemical methods with application schedule`;
-    return `
-      <div class="col-md-6 col-lg-4 fade-in" style="animation-delay:${i * 0.08}s">
-        <div class="pest-card">
-          <h6><i class="bi bi-bug-fill me-2"></i>${escapeHtml(capitalize(pest))}</h6>
-          <p class="text-muted small mb-2"><i class="bi bi-flower2 me-1"></i>Affects: ${escapeHtml(info.crop)}</p>
-          <div class="d-flex flex-column gap-1 mb-3">
-            <div class="d-flex align-items-start gap-2">
-              <span class="badge-organic mt-1">ORGANIC</span>
-              <span class="small">${escapeHtml(info.organic)}</span>
-            </div>
-            <div class="d-flex align-items-start gap-2">
-              <span class="badge-chemical mt-1">CHEMICAL</span>
-              <span class="small">${escapeHtml(info.chemical)}</span>
-            </div>
-          </div>
-          <button type="button" class="btn btn-success-custom btn-sm w-100" data-quick-q="${escapeHtml(quickQ)}">
-            <i class="bi bi-robot me-1"></i> Full Treatment Guide
-          </button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function askAIPest() {
-  const query = document.getElementById('pestSearch')?.value.trim();
-  if (!query) {
-    showToast('Please describe the pest or symptoms first', 'error');
-    return;
-  }
-  sendQuickQ(`I see these symptoms on my crop: "${query}". What pest or disease is this? How should I treat it?`);
-}
-
-// ══════════════════════════════════════════════════════════════
-// AI TIP (SIDEBAR)
-// ══════════════════════════════════════════════════════════════
-async function loadAITip() {
-  const el = document.getElementById('aiTipBody');
-  if (!el) return;
-  try {
-    const data = await fetchJSON(API.quickAdvice, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic: 'irrigation efficiency', crop: state.selectedCrop, location: 'India' }),
-    });
-    el.innerHTML = `
-      <div class="ai-tip-card">
-        <div class="tip-header"><i class="bi bi-lightbulb-fill"></i> Today's AI Tip</div>
-        ${formatMessageText(data.advice || 'No tip available right now.')}
-      </div>
-    `;
-  } catch (err) {
-    console.error('AI tip error:', err);
-    el.innerHTML = `<p class="text-muted small">AI tips are temporarily unavailable.</p>`;
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-// CHAT
-// ══════════════════════════════════════════════════════════════
 async function sendMessage() {
-  const input   = document.getElementById('chatInput');
-  const sendBtn = document.getElementById('sendBtn');
-  if (!input || !sendBtn) return;
-
+  const input = $('chatInput');
   const message = input.value.trim();
   if (!message || state.isTyping) return;
 
-  appendMessage('user', message);
+  // Append user message
+  appendMessage(message, 'user');
   input.value = '';
-  autoResizeTextarea(input);
+  autoResizeInput();
+  $('charCounter').textContent = '0/1000';
 
-  if (state.messageCount === 0) {
-    const qq = document.getElementById('quickQuestions');
-    if (qq) qq.style.display = 'none';
-  }
-  state.messageCount++;
-
+  // Show typing indicator
   state.isTyping = true;
-  sendBtn.disabled = true;
-  const typingId = showTypingIndicator();
+  $('sendBtn').disabled = true;
+  const typingEl = appendTypingIndicator();
 
   try {
-    const data = await fetchJSON(API.chat, {
-      method:  'POST',
+    const res = await fetch('/api/chat', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message }),
+      body: JSON.stringify({ message, language: state.language }),
     });
-    removeTypingIndicator(typingId);
-    appendMessage('bot', data.reply, data.timestamp);
+    const data = await res.json();
+    typingEl.remove();
+
+    if (data.error) {
+      appendMessage(`⚠️ Error: ${data.error}`, 'bot', true);
+    } else {
+      appendMessage(data.response, 'bot', data.demo_mode);
+    }
   } catch (err) {
-    console.error('Chat error:', err);
-    removeTypingIndicator(typingId);
-    appendMessage('bot', '❌ Network error. Please check your connection and try again.');
+    typingEl.remove();
+    appendMessage('⚠️ Network error. Please check your connection and try again.', 'bot', true);
   } finally {
     state.isTyping = false;
-    sendBtn.disabled = false;
-    input.focus();
+    $('sendBtn').disabled = false;
+    $('chatInput').focus();
   }
 }
 
-function sendQuickQ(text) {
-  if (!text) return;
-  showSection('chat');
-  setTimeout(() => {
-    const input = document.getElementById('chatInput');
-    if (input) {
-      input.value = text;
-      sendMessage();
-    }
-  }, 300);
-}
-
-function handleChatKey(event) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault();
-    sendMessage();
-  }
-}
-
-function autoResizeTextarea(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 140) + 'px';
-}
-
-function appendMessage(role, text, time) {
-  const container = document.getElementById('chatMessages');
-  if (!container) return;
-
-  const isUser  = role === 'user';
-  const timeStr = time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const div     = document.createElement('div');
-  div.className = `message message-${role} fade-slide-up`;
-
-  div.innerHTML = `
-    <div class="message-avatar">
-      <i class="bi bi-${isUser ? 'person-fill' : 'robot'}"></i>
-    </div>
-    <div class="message-content">
-      <div class="message-bubble">${formatMessageText(text)}</div>
-      <div class="message-time">${escapeHtml(timeStr)}</div>
-    </div>
-  `;
-
-  container.appendChild(div);
-  scrollToBottom(container);
-}
-
-/** Converts a small markdown subset (bold, italic, inline code,
- *  bullet/numbered lists, paragraphs) to safe HTML. The source text is
- *  escaped FIRST, so any HTML/script the text happens to contain is
- *  neutralized before the markdown tags are added. */
-function formatMessageText(text) {
-  if (!text) return '';
-
-  const escaped = escapeHtml(text);
-  const blocks = escaped.split(/\n{2,}/);
-
-  return blocks.map(block => {
-    const lines = block.split('\n');
-    const isList = lines.every(line => /^\s*(?:[*\-]|\d+\.)\s+/.test(line.trim()) || line.trim() === '');
-
-    const inline = (s) => s
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    if (isList) {
-      const items = lines
-        .filter(line => line.trim() !== '')
-        .map(line => `<li>${inline(line.replace(/^\s*(?:[*\-]|\d+\.)\s+/, ''))}</li>`)
-        .join('');
-      return `<ul>${items}</ul>`;
-    }
-
-    return `<p>${inline(block).replace(/\n/g, '<br>')}</p>`;
-  }).join('');
-}
-
-function showTypingIndicator() {
-  const container = document.getElementById('chatMessages');
-  if (!container) return null;
-  const id = 'typing-' + Date.now();
+function appendMessage(text, role, isDemo = false) {
+  const chatWindow = $('chatWindow');
   const div = document.createElement('div');
-  div.id = id;
-  div.className = 'message message-bot fade-slide-up';
+  div.className = `chat-message ${role === 'user' ? 'user-message' : 'bot-message'}`;
+
+  const avatar = role === 'user'
+    ? `<div class="msg-avatar user-avatar"><i class="fa-solid fa-user"></i></div>`
+    : `<div class="msg-avatar bot-avatar">🌾</div>`;
+
+  const demoTag = (role === 'bot' && isDemo)
+    ? `<div class="demo-badge"><i class="fa-solid fa-triangle-exclamation"></i> Demo – Add IBM API key for full AI</div>`
+    : '';
+
+  const now = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
   div.innerHTML = `
-    <div class="message-avatar"><i class="bi bi-robot"></i></div>
-    <div class="message-content">
+    ${avatar}
+    <div class="msg-bubble">
+      <div class="msg-content">${formatBotText(text)}</div>
+      ${demoTag}
+      <div class="msg-time">${now}</div>
+    </div>`;
+
+  chatWindow.appendChild(div);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+  return div;
+}
+
+function appendTypingIndicator() {
+  const chatWindow = $('chatWindow');
+  const div = document.createElement('div');
+  div.className = 'chat-message bot-message';
+  div.innerHTML = `
+    <div class="msg-avatar bot-avatar">🌾</div>
+    <div class="msg-bubble">
       <div class="typing-indicator">
-        <div class="typing-dot"></div>
-        <div class="typing-dot"></div>
-        <div class="typing-dot"></div>
+        <span></span><span></span><span></span>
       </div>
-    </div>
-  `;
-  container.appendChild(div);
-  scrollToBottom(container);
-  return id;
+    </div>`;
+  chatWindow.appendChild(div);
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+  return div;
 }
 
-function removeTypingIndicator(id) {
-  if (id) document.getElementById(id)?.remove();
+function formatBotText(text) {
+  // Convert markdown-like formatting to HTML
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/^#{1,3}\s+(.+)$/gm, '<h6 class="mt-2 mb-1 text-success fw-bold">$1</h6>')
+    .replace(/^[\-•]\s+(.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul class="mb-2">$&</ul>')
+    .replace(/\n{2,}/g, '</p><p>')
+    .replace(/\n/g, '<br>')
+    .replace(/^(?!<[hul])(.+)/, '<p>$1</p>');
 }
 
-function scrollToBottom(el) {
-  el.scrollTop = el.scrollHeight;
+function clearChat() {
+  fetch('/api/clear-history', { method: 'POST' });
+  const chatWindow = $('chatWindow');
+  // Keep welcome message
+  const welcome = $('welcomeMessage');
+  chatWindow.innerHTML = '';
+  if (welcome) chatWindow.appendChild(welcome);
+  showToast('Conversation cleared.');
 }
 
-async function clearChat() {
+// ─── Weather ────────────────────────────────────────────────────────
+async function loadWeather(city) {
+  const cityInput = $('weatherCity');
+  const queryCity = city || (cityInput ? cityInput.value : 'New Delhi');
+
+  $('weatherCards').innerHTML = `
+    <div class="col-12 text-center py-4">
+      <div class="spinner-border text-success"></div>
+      <p class="mt-2 text-muted">Loading weather…</p>
+    </div>`;
+  $('farmingAlert').style.display = 'none';
+
   try {
-    await fetchJSON(API.clearChat, { method: 'POST' });
-  } catch (err) {
-    console.error('Clear chat error:', err);
-    // Still clear the UI locally even if the server call failed
-  }
+    const res  = await fetch(`/api/weather?city=${encodeURIComponent(queryCity)}`);
+    const data = await res.json();
 
-  const container = document.getElementById('chatMessages');
-  if (container) {
-    container.innerHTML = `
-      <div class="message message-bot fade-slide-up">
-        <div class="message-avatar"><i class="bi bi-robot"></i></div>
-        <div class="message-content">
-          <div class="message-bubble">
-            <p>🌾 Chat cleared! I'm ready for your next farming question.</p>
-            <p class="mb-0">How can I help you today?</p>
+    const iconUrl = `https://openweathermap.org/img/wn/${data.icon}@2x.png`;
+    const demoNote = data.demo
+      ? '<div class="demo-badge mt-2"><i class="fa-solid fa-triangle-exclamation"></i> Demo data – add WEATHER_API_KEY for real weather</div>'
+      : '';
+
+    $('weatherCards').innerHTML = `
+      <div class="col-md-5">
+        <div class="weather-card">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="weather-city"><i class="fa-solid fa-location-dot me-1"></i>${escHtml(data.city)}</div>
+              <div class="weather-temp">${data.temperature.toFixed(1)}°C</div>
+              <div class="weather-desc">${escHtml(data.description)}</div>
+              <div class="mt-1" style="font-size:.8rem;opacity:.8">Feels like ${data.feels_like.toFixed(1)}°C</div>
+              ${demoNote}
+            </div>
+            <img src="${iconUrl}" alt="${escHtml(data.description)}" width="72" onerror="this.style.display='none'">
           </div>
-          <div class="message-time">Just now</div>
         </div>
       </div>
-    `;
+      <div class="col-md-7">
+        <div class="row g-2">
+          <div class="col-6">
+            <div class="weather-detail text-white">
+              <div class="weather-detail-val"><i class="fa-solid fa-droplet me-1"></i>${data.humidity}%</div>
+              <div class="weather-detail-lbl">Humidity</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="weather-detail text-white">
+              <div class="weather-detail-val"><i class="fa-solid fa-wind me-1"></i>${data.wind_speed} km/h</div>
+              <div class="weather-detail-lbl">Wind Speed</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="weather-detail text-white">
+              <div class="weather-detail-val"><i class="fa-solid fa-gauge me-1"></i>${data.pressure}</div>
+              <div class="weather-detail-lbl">Pressure (hPa)</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="weather-detail text-white">
+              <div class="weather-detail-val"><i class="fa-solid fa-thermometer-half me-1"></i>${data.temperature.toFixed(0)}°C</div>
+              <div class="weather-detail-lbl">Temperature</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    if (data.farming_alert) {
+      $('farmingAlert').style.display = 'block';
+      $('farmingAlert').innerHTML = `<i class="fa-solid fa-triangle-exclamation me-2"></i>${escHtml(data.farming_alert)}`;
+    }
+  } catch (err) {
+    $('weatherCards').innerHTML = `<div class="col-12"><div class="alert alert-danger">Failed to load weather data. ${err.message}</div></div>`;
   }
-  state.messageCount = 0;
-  const qq = document.getElementById('quickQuestions');
-  if (qq) qq.style.display = '';
-  showToast('Chat history cleared', 'success');
 }
 
-function exportChat() {
-  const messages = document.querySelectorAll('.message');
-  let text = `KrishiBot Chat Export — ${new Date().toLocaleString()}\n${'='.repeat(50)}\n\n`;
+// ─── Crop Recommendations ───────────────────────────────────────────
+async function loadCropRecommendations() {
+  const season   = $('cropSeason').value;
+  const soilType = $('cropSoil').value;
+  const state_   = $('cropState').value;
 
-  messages.forEach(msg => {
-    const role    = msg.classList.contains('message-user') ? 'You' : 'KrishiBot';
-    const content = msg.querySelector('.message-bubble')?.innerText || '';
-    const time    = msg.querySelector('.message-time')?.textContent || '';
-    text += `[${role}] ${time}\n${content}\n\n`;
+  const result = $('cropRecommendationsResult');
+  result.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2 text-muted">Analyzing best crops…</p></div>`;
+
+  try {
+    const res = await fetch('/api/crop-recommendations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ season, soil_type: soilType, state: state_ }),
+    });
+    const data = await res.json();
+
+    if (!data.recommendations?.length) {
+      result.innerHTML = `<div class="alert alert-info">No specific recommendations found. Please select season, soil type, or state to narrow results. Try asking KrishiBot in the chat panel!</div>`;
+      return;
+    }
+
+    const html = `
+      <h6 class="mb-3 text-success"><i class="fa-solid fa-seedling me-2"></i>${data.count} Recommended Crops</h6>
+      <div class="row g-3">
+        ${data.recommendations.map(crop => `
+          <div class="col-md-4 fade-in">
+            <div class="crop-card">
+              <div class="crop-card-title">${escHtml(crop.name)}</div>
+              <div class="crop-card-hindi">${escHtml(crop.hindi)}</div>
+              ${crop.season.map(s => `<span class="crop-badge">${s}</span>`).join('')}
+              <div class="crop-info-row mt-2">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>Yield: ${escHtml(crop.yield)}</span>
+              </div>
+              <div class="crop-info-row">
+                <i class="fa-solid fa-droplet"></i>
+                <span>${escHtml(crop.water)}</span>
+              </div>
+              ${crop.reasons.map(r => `<div class="crop-info-row"><i class="fa-solid fa-check-circle text-success"></i><span>${escHtml(r)}</span></div>`).join('')}
+              ${crop.tips ? `<div class="mt-2 p-2 rounded" style="background:var(--bg-body);font-size:.78rem;color:var(--text-secondary)"><i class="fa-solid fa-lightbulb text-warning me-1"></i>${escHtml(crop.tips)}</div>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>`;
+    result.innerHTML = html;
+  } catch (err) {
+    result.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+  }
+}
+
+// ─── Soil Analysis ──────────────────────────────────────────────────
+function analyzeSoil() {
+  const ph       = parseFloat($('soilPH').value);
+  const oc       = parseFloat($('soilOC').value);
+  const soilType = $('soilTypeInput').value;
+  const result   = $('soilAnalysisResult');
+
+  if (isNaN(ph) && isNaN(oc) && !soilType) {
+    result.innerHTML = `<div class="alert alert-warning">Please enter at least one soil parameter to analyze.</div>`;
+    return;
+  }
+
+  let phStatus = '', phColor = '', phAdvice = '', phPct = 50;
+  if (!isNaN(ph)) {
+    if (ph < 5.5) {
+      phStatus = 'Strongly Acidic'; phColor = '#ef5350';
+      phAdvice = 'Apply agricultural lime (CaCO₃) at 2–4 tonnes/ha. Grow acid-tolerant crops (tea, rice, areca nut) in the interim.';
+      phPct = Math.max(0, ph / 14 * 100);
+    } else if (ph < 6.0) {
+      phStatus = 'Moderately Acidic'; phColor = '#ff9800';
+      phAdvice = 'Apply dolomite limestone at 1–2 tonnes/ha. Suitable for rice, groundnut, potatoes.';
+      phPct = ph / 14 * 100;
+    } else if (ph <= 7.5) {
+      phStatus = '✅ Ideal Range'; phColor = '#4caf50';
+      phAdvice = 'Excellent! Soil pH is in the ideal range (6–7.5). Most nutrients are available. Continue good soil management practices.';
+      phPct = ph / 14 * 100;
+    } else if (ph <= 8.5) {
+      phStatus = 'Alkaline'; phColor = '#2196f3';
+      phAdvice = 'Apply gypsum (CaSO₄) at 2–5 tonnes/ha to reduce alkalinity. Grow salt-tolerant crops. Improve drainage. Add organic matter.';
+      phPct = ph / 14 * 100;
+    } else {
+      phStatus = 'Strongly Alkaline'; phColor = '#9c27b0';
+      phAdvice = 'Severe alkalinity. Apply gypsum + sulphur. Reclamation required before normal cropping. Consult soil scientist.';
+      phPct = ph / 14 * 100;
+    }
+  }
+
+  let ocStatus = '', ocAdvice = '';
+  if (!isNaN(oc)) {
+    if (oc < 0.5) {
+      ocStatus = '🔴 Low (< 0.5%)';
+      ocAdvice = 'Critical: Apply FYM 15–20 tonnes/ha + green manuring + vermicompost. Organic matter is very low.';
+    } else if (oc < 0.75) {
+      ocStatus = '🟡 Marginal (0.5–0.75%)';
+      ocAdvice = 'Apply FYM 10–15 tonnes/ha. Practice crop rotation with legumes. Incorporate crop residues.';
+    } else if (oc < 1.5) {
+      ocStatus = '🟢 Adequate (0.75–1.5%)';
+      ocAdvice = 'Good organic carbon level. Maintain by annual FYM/compost application and crop rotation.';
+    } else {
+      ocStatus = '🌿 Rich (> 1.5%)';
+      ocAdvice = 'Excellent soil organic matter. Continue organic farming practices to maintain this level.';
+    }
+  }
+
+  result.innerHTML = `
+    <div class="soil-result-card fade-in">
+      <h6 class="text-success mb-4"><i class="fa-solid fa-flask-vial me-2"></i>Soil Health Analysis Report</h6>
+      ${!isNaN(ph) ? `
+        <div class="mb-4">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="fw-semibold">Soil pH: ${ph}</span>
+            <span style="color:${phColor}">${phStatus}</span>
+          </div>
+          <div class="soil-ph-meter">
+            <div class="soil-ph-pointer" style="left:${phPct}%"></div>
+          </div>
+          <div class="d-flex justify-content-between" style="font-size:.72rem;color:var(--text-muted)">
+            <span>0 (Acidic)</span><span>7 (Neutral)</span><span>14 (Alkaline)</span>
+          </div>
+          <div class="mt-2 p-2 rounded" style="background:var(--bg-body);font-size:.83rem">
+            <i class="fa-solid fa-lightbulb text-warning me-1"></i>${escHtml(phAdvice)}
+          </div>
+        </div>` : ''}
+      ${!isNaN(oc) ? `
+        <div class="mb-3">
+          <div class="fw-semibold mb-1">Organic Carbon: ${oc}% — <span style="font-weight:400">${ocStatus}</span></div>
+          <div class="p-2 rounded" style="background:var(--bg-body);font-size:.83rem">
+            <i class="fa-solid fa-leaf text-success me-1"></i>${escHtml(ocAdvice)}
+          </div>
+        </div>` : ''}
+      ${soilType ? `
+        <div class="mb-3">
+          <div class="fw-semibold mb-1"><i class="fa-solid fa-layer-group text-success me-1"></i>Soil Type: ${escHtml(soilType)}</div>
+          <div class="p-2 rounded" style="background:var(--bg-body);font-size:.83rem">
+            ${getSoilTypeInfo(soilType)}
+          </div>
+        </div>` : ''}
+      <div class="mt-3 p-3 rounded" style="background:#e8f5e9;border:1px solid #c8e6c9">
+        <div class="fw-semibold text-success mb-1"><i class="fa-solid fa-id-card me-2"></i>Get Your FREE Soil Health Card</div>
+        <div style="font-size:.82rem;color:#2e7d32">Visit your nearest KVK (Krishi Vigyan Kendra) or Agriculture Department office.
+        Website: <strong>soilhealth.dac.gov.in</strong> | Kisan Helpline: <strong>1800-180-1551</strong></div>
+      </div>
+    </div>`;
+
+  updateSoilChart(ph, oc);
+}
+
+function getSoilTypeInfo(type) {
+  const info = {
+    'Alluvial':       'Highly fertile, rich in potash. Common in Indo-Gangetic plains. Good for rice, wheat, sugarcane. Needs regular N & P supplementation.',
+    'Black Cotton':   'High water retention, rich in Ca & Mg. Ideal for cotton, soybean, wheat. Deep ploughing recommended. Needs N & P.',
+    'Red & Yellow':   'Porous, good drainage, low fertility. Suitable for groundnut, cotton, millet. Heavy organic manuring required.',
+    'Laterite':       'Acidic, iron-rich, poor in NPK. Good for tea, coffee, cashew. Heavy liming and manuring needed.',
+    'Sandy':          'Low water retention, low fertility. Good for bajra, groundnut with drip irrigation. Needs mulching and heavy organics.',
+  };
+  return `<i class="fa-solid fa-info-circle text-info me-1"></i>${info[type] || 'Apply soil test for specific nutrient recommendations.'}`;
+}
+
+function updateSoilChart(ph, oc) {
+  const ctx = document.getElementById('soilNutrientChart')?.getContext('2d');
+  if (!ctx) return;
+  if (state.charts.soil) state.charts.soil.destroy();
+
+  const safeph = isNaN(ph) ? 6.5 : ph;
+  // Calculate simulated nutrient availability based on pH
+  const navail = ph < 6 ? 55 : ph > 8 ? 60 : 80;
+  const pavail = ph < 5.5 ? 30 : ph > 7.5 ? 50 : 75;
+  const kavail = ph < 5 ? 50 : ph > 8.5 ? 60 : 80;
+  const caavail = ph < 5 ? 40 : ph > 8 ? 90 : 75;
+  const mgavail = ph < 5 ? 45 : ph > 8 ? 85 : 70;
+  const znavail = ph < 5 ? 80 : ph > 7 ? 30 : 70;
+
+  state.charts.soil = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Nitrogen (N)', 'Phosphorus (P)', 'Potassium (K)', 'Calcium (Ca)', 'Magnesium (Mg)', 'Zinc (Zn)'],
+      datasets: [{
+        label: 'Nutrient Availability (%)',
+        data: [navail, pavail, kavail, caavail, mgavail, znavail],
+        backgroundColor: ['#43a047','#fb8c00','#1e88e5','#8e24aa','#e53935','#00897b'],
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, max: 100, title: { display: true, text: '% Availability' } }
+      }
+    }
+  });
+}
+
+// ─── Pest & Disease Info ────────────────────────────────────────────
+async function loadPestInfo() {
+  const crop = $('pestCrop').value;
+  const type = $('problemType').value;
+  if (!crop) return;
+
+  const result = $('pestInfoResult');
+  result.innerHTML = `<div class="text-center py-3"><div class="spinner-border text-success"></div></div>`;
+
+  try {
+    const res = await fetch('/knowledge_base/pest_disease.json').catch(() => null);
+    // Use the chat API to get pest info
+    const chatRes = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `List the major ${type === 'pest' ? 'pests' : type === 'disease' ? 'diseases' : 'pests and diseases'} of ${crop} with symptoms, identification, and management recommendations using IPM approach.`,
+        language: 'en',
+      }),
+    });
+    const data = await chatRes.json();
+    result.innerHTML = `
+      <div class="card fade-in">
+        <div class="card-header">
+          <i class="fa-solid fa-${type === 'disease' ? 'bacterium' : 'bug'}"></i>
+          Pest & Disease Guide – ${escHtml(crop)}
+          ${data.demo_mode ? '<span class="demo-badge ms-2">Demo</span>' : ''}
+        </div>
+        <div class="card-body">
+          <div style="font-size:.88rem;line-height:1.7">${formatBotText(data.response)}</div>
+        </div>
+      </div>`;
+  } catch (err) {
+    result.innerHTML = `<div class="alert alert-danger">Error loading pest info: ${err.message}</div>`;
+  }
+}
+
+// ─── Fertilizer Advice ──────────────────────────────────────────────
+async function getFertilizerAdvice() {
+  const crop   = $('fertCrop').value;
+  const method = $('fertMethod').value;
+  const result = $('fertilizerResult');
+
+  if (!crop) {
+    result.innerHTML = `<div class="alert alert-warning">Please select a crop first.</div>`;
+    return;
+  }
+
+  result.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2 text-muted">Getting fertilizer recommendations…</p></div>`;
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `Provide detailed ${method} fertilizer recommendations for ${crop} including NPK doses, schedule, organic alternatives, and micronutrient management. Include application timings and quantities in kg/ha.`,
+        language: 'en',
+      }),
+    });
+    const data = await res.json();
+    result.innerHTML = `
+      <div class="card fade-in">
+        <div class="card-header">
+          <i class="fa-solid fa-flask"></i> Fertilizer Plan – ${escHtml(crop)}
+          ${data.demo_mode ? '<span class="demo-badge ms-2">Demo</span>' : ''}
+        </div>
+        <div class="card-body">
+          <div style="font-size:.88rem;line-height:1.7">${formatBotText(data.response)}</div>
+        </div>
+      </div>`;
+  } catch (err) {
+    result.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+  }
+}
+
+// ─── Irrigation Plan ───────────────────────────────────────────────
+async function getIrrigationPlan() {
+  const crop   = $('irrigCrop').value;
+  const system = $('irrigSystem').value;
+  const result = $('irrigationResult');
+
+  if (!crop) {
+    result.innerHTML = `<div class="alert alert-warning">Please select a crop.</div>`;
+    return;
+  }
+
+  result.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-success"></div></div>`;
+
+  const systemName = { drip: 'Drip', sprinkler: 'Sprinkler', flood: 'Flood/Furrow' }[system];
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: `Provide an irrigation schedule for ${crop} using ${systemName} irrigation. Include critical growth stages, water requirement at each stage, irrigation intervals, and water-saving tips.`,
+      language: 'en',
+    }),
+  });
+  const data = await res.json();
+  result.innerHTML = `
+    <div class="card fade-in">
+      <div class="card-header">
+        <i class="fa-solid fa-droplet"></i> Irrigation Plan – ${escHtml(crop)} (${systemName})
+        ${data.demo_mode ? '<span class="demo-badge ms-2">Demo</span>' : ''}
+      </div>
+      <div class="card-body">
+        <div style="font-size:.88rem;line-height:1.7">${formatBotText(data.response)}</div>
+      </div>
+    </div>`;
+}
+
+// ─── Market Prices ─────────────────────────────────────────────────
+async function loadMarketPrices() {
+  const result = $('marketPricesResult');
+  if (!result) return;
+
+  try {
+    const res  = await fetch('/api/market-prices');
+    const data = await res.json();
+    state.marketData = data;
+
+    const kharifRows = Object.entries(data.msp_kharif || {}).map(([k, v]) =>
+      `<tr><td>${escHtml(k)}</td><td class="msp-price">${escHtml(v)}</td></tr>`
+    ).join('');
+
+    const rabiRows = Object.entries(data.msp_rabi || {}).map(([k, v]) =>
+      `<tr><td>${escHtml(k)}</td><td class="msp-price">${escHtml(v)}</td></tr>`
+    ).join('');
+
+    const channelHtml = (data.selling_channels || []).map(c => `
+      <div class="mb-3">
+        <div class="fw-semibold"><i class="fa-solid fa-store text-success me-2"></i>${escHtml(c.channel)}</div>
+        <div class="text-secondary" style="font-size:.83rem">${escHtml(c.description)}</div>
+        ${c.tip ? `<div class="mt-1" style="font-size:.8rem;color:var(--clr-primary)"><i class="fa-solid fa-lightbulb me-1"></i>${escHtml(c.tip)}</div>` : ''}
+      </div>`).join('');
+
+    result.innerHTML = `
+      <div class="row g-4 fade-in">
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-header"><i class="fa-solid fa-wheat-awn"></i> Kharif MSP 2024-25</div>
+            <div class="card-body p-0">
+              <table class="table table-sm table-striped msp-table mb-0">
+                <thead><tr><th>Crop</th><th>MSP / Quintal</th></tr></thead>
+                <tbody>${kharifRows}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-header"><i class="fa-solid fa-seedling"></i> Rabi MSP 2024-25</div>
+            <div class="card-body p-0">
+              <table class="table table-sm table-striped msp-table mb-0">
+                <thead><tr><th>Crop</th><th>MSP / Quintal</th></tr></thead>
+                <tbody>${rabiRows}</tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card mt-3">
+            <div class="card-header"><i class="fa-solid fa-store"></i> Selling Channels</div>
+            <div class="card-body">${channelHtml}</div>
+          </div>
+        </div>
+      </div>
+      <div class="alert alert-info mt-3" style="font-size:.8rem">
+        <i class="fa-solid fa-info-circle me-2"></i>${escHtml(data.note || '')}
+        Live mandi prices: <strong>agmarknet.gov.in</strong> | eNAM: <strong>enam.gov.in</strong>
+      </div>`;
+
+    updateMarketChart(data);
+  } catch (err) {
+    result.innerHTML = `<div class="alert alert-danger">Error loading market prices: ${err.message}</div>`;
+  }
+}
+
+// ─── Government Schemes ────────────────────────────────────────────
+async function loadSchemes() {
+  const result = $('schemesResult');
+  if (!result) return;
+
+  try {
+    const res  = await fetch('/api/schemes');
+    const data = await res.json();
+    state.schemesData = data.schemes || [];
+    renderSchemes(state.schemesData);
+  } catch (err) {
+    result.innerHTML = `<div class="alert alert-danger">Error: ${err.message}</div>`;
+  }
+}
+
+function filterSchemes(query) {
+  if (!state.schemesData.length) return;
+  const lower = query.toLowerCase();
+  const filtered = state.schemesData.filter(s =>
+    s.name.toLowerCase().includes(lower) ||
+    s.benefit.toLowerCase().includes(lower) ||
+    (s.eligibility || '').toLowerCase().includes(lower)
+  );
+  renderSchemes(filtered);
+}
+
+function renderSchemes(schemes) {
+  const result = $('schemesResult');
+  if (!schemes.length) {
+    result.innerHTML = `<div class="alert alert-info">No schemes found for your search.</div>`;
+    return;
+  }
+  result.innerHTML = schemes.map(s => `
+    <div class="scheme-card fade-in">
+      <div class="scheme-title">${escHtml(s.name)}</div>
+      <div class="scheme-ministry"><i class="fa-solid fa-building-columns me-1"></i>${escHtml(s.ministry || '')}</div>
+      <div class="scheme-benefit"><i class="fa-solid fa-gift me-2"></i>${escHtml(s.benefit)}</div>
+      ${s.eligibility ? `<div class="scheme-detail"><strong>Eligibility:</strong> ${escHtml(s.eligibility)}</div>` : ''}
+      ${s.how_to_apply ? `<div class="scheme-detail mt-1"><strong>How to Apply:</strong> ${escHtml(s.how_to_apply)}</div>` : ''}
+      ${s.helpline ? `<div class="scheme-detail mt-1"><i class="fa-solid fa-phone me-1 text-success"></i><strong>Helpline:</strong> ${escHtml(s.helpline)}</div>` : ''}
+      ${s.website ? `<a href="${escHtml(s.website)}" target="_blank" rel="noopener" class="scheme-link"><i class="fa-solid fa-external-link"></i>${escHtml(s.website)}</a>` : ''}
+    </div>`).join('');
+}
+
+// ─── Charts ─────────────────────────────────────────────────────────
+function initCharts() {
+  initWeatherChart();
+  initCropCalendarChart();
+  initFertChart();
+  initIrrigChart();
+  updateSoilChart(6.5, 0.8);
+}
+
+function initWeatherChart() {
+  const ctx = document.getElementById('weatherChart')?.getContext('2d');
+  if (!ctx) return;
+  state.charts.weather = new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: ['Rice', 'Wheat', 'Maize', 'Cotton', 'Soybean', 'Groundnut'],
+      datasets: [
+        {
+          label: 'Temp Suitability',
+          data: [85, 70, 90, 80, 75, 80],
+          borderColor: '#43a047', backgroundColor: 'rgba(67,160,71,.15)', pointRadius: 4,
+        },
+        {
+          label: 'Humidity Suitability',
+          data: [90, 65, 75, 60, 80, 65],
+          borderColor: '#0288d1', backgroundColor: 'rgba(2,136,209,.1)', pointRadius: 4,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { r: { min: 0, max: 100, ticks: { stepSize: 25 } } }
+    }
+  });
+}
+
+function initCropCalendarChart() {
+  const ctx = document.getElementById('cropCalendarChart')?.getContext('2d');
+  if (!ctx) return;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  state.charts.cropCal = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [
+        { label: 'Kharif sowing', data: [0,0,0,0,0,10,10,0,0,0,0,0], backgroundColor: '#43a047', stack: 'k' },
+        { label: 'Kharif harvest', data: [0,0,0,0,0,0,0,0,5,10,5,0], backgroundColor: '#81c784', stack: 'kh' },
+        { label: 'Rabi sowing',   data: [0,0,0,0,0,0,0,0,0,10,10,0], backgroundColor: '#f57f17', stack: 'r' },
+        { label: 'Rabi harvest',  data: [0,5,5,5,0,0,0,0,0,0,0,0],   backgroundColor: '#ffca28', stack: 'rh' },
+        { label: 'Zaid',          data: [0,0,5,10,5,0,0,0,0,0,0,0],  backgroundColor: '#0288d1', stack: 'z' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { display: false }, x: { stacked: false } }
+    }
+  });
+}
+
+function initFertChart() {
+  const ctx = document.getElementById('fertChart')?.getContext('2d');
+  if (!ctx) return;
+  state.charts.fert = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Rice','Wheat','Maize','Cotton','Sugarcane','Soybean','Tomato'],
+      datasets: [
+        { label: 'N (kg/ha)', data: [120,150,180,150,250,30,200], backgroundColor: '#43a047' },
+        { label: 'P (kg/ha)', data: [60,60,80,60,80,80,150],      backgroundColor: '#fb8c00' },
+        { label: 'K (kg/ha)', data: [60,40,60,60,100,40,150],     backgroundColor: '#1e88e5' },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { x: { stacked: false }, y: { title: { display: true, text: 'kg/ha' } } }
+    }
+  });
+}
+
+function initIrrigChart() {
+  const ctx = document.getElementById('irrigChart')?.getContext('2d');
+  if (!ctx) return;
+  state.charts.irrig = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Drip (90–95%)', 'Sprinkler (75–85%)', 'Flood (40–50%)'],
+      datasets: [{
+        data: [92, 80, 45],
+        backgroundColor: ['#43a047','#0288d1','#fb8c00'],
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: { label: (c) => ` ${c.label}: ${c.raw}% efficiency` }
+        }
+      }
+    }
+  });
+}
+
+function updateMarketChart(data) {
+  const ctx = document.getElementById('marketChart')?.getContext('2d');
+  if (!ctx) return;
+  if (state.charts.market) state.charts.market.destroy();
+
+  const labels = Object.keys(data.msp_kharif || {}).slice(0, 6);
+  const prices = labels.map(k => {
+    const val = data.msp_kharif[k];
+    return parseInt(val.replace(/[^0-9]/g, '')) || 0;
   });
 
-  const blob = new Blob([text], { type: 'text/plain' });
-  const a    = document.createElement('a');
-  a.href     = URL.createObjectURL(blob);
-  a.download = `krishibot-chat-${Date.now()}.txt`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  showToast('Chat exported!', 'success');
-}
-
-// ══════════════════════════════════════════════════════════════
-// CONTEXT PANEL
-// ══════════════════════════════════════════════════════════════
-function updateContext() {
-  const crop = document.getElementById('contextCrop')?.value;
-  if (crop) {
-    state.selectedCrop = crop;
-    selectCrop(crop);
-  }
-}
-
-function sendContextMessage() {
-  const crop     = document.getElementById('contextCrop')?.value || 'wheat';
-  const location = document.getElementById('contextLocation')?.value || 'India';
-  const soil     = document.getElementById('contextSoil')?.value || 'Loamy';
-
-  const msg = `I'm growing ${crop} in ${location}. My soil type is ${soil}. Give me personalized farming advice including irrigation schedule, fertilizer dosage, common pests to watch for, and current best practices.`;
-  sendQuickQ(msg);
-}
-
-// ══════════════════════════════════════════════════════════════
-// VOICE INPUT
-// ══════════════════════════════════════════════════════════════
-function toggleVoiceInput() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    showToast('Voice input not supported in this browser. Try Chrome.', 'error');
-    return;
-  }
-
-  const btn = document.getElementById('voiceBtn');
-  if (!btn) return;
-
-  if (state.voiceActive && state.recognition) {
-    state.recognition.stop();
-    state.voiceActive = false;
-    btn.classList.remove('voice-active');
-    return;
-  }
-
-  state.recognition = new SpeechRecognition();
-  state.recognition.continuous = false;
-  state.recognition.interimResults = true;
-  state.recognition.lang = 'hi-IN'; // Hindi; change to 'en-IN' for English
-
-  state.recognition.onstart = () => {
-    state.voiceActive = true;
-    btn.classList.add('voice-active');
-    showToast('Listening... Speak now (Hindi/English)', 'success');
-  };
-
-  state.recognition.onresult = (event) => {
-    const transcript = Array.from(event.results)
-      .map(r => r[0].transcript)
-      .join('');
-    const input = document.getElementById('chatInput');
-    if (input) {
-      input.value = transcript;
-      autoResizeTextarea(input);
+  state.charts.market = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels.map(l => l.split('(')[0].trim()),
+      datasets: [{
+        label: 'MSP (₹/quintal)',
+        data: prices,
+        backgroundColor: labels.map((_, i) => `hsl(${120 + i * 25},55%,45%)`),
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: {
+          title: { display: true, text: '₹ / quintal' },
+          beginAtZero: false,
+        }
+      }
     }
-  };
-
-  state.recognition.onend = () => {
-    state.voiceActive = false;
-    btn.classList.remove('voice-active');
-  };
-
-  state.recognition.onerror = () => {
-    state.voiceActive = false;
-    btn.classList.remove('voice-active');
-    showToast('Voice input error. Please try again.', 'error');
-  };
-
-  state.recognition.start();
+  });
 }
+
+// ─── Toast notifications ───────────────────────────────────────────
+function showToast(msg) {
+  $('toastBody').textContent = msg;
+  const toast = new bootstrap.Toast($('liveToast'), { delay: 3000 });
+  toast.show();
+}
+
+// ─── Utility ──────────────────────────────────────────────────────
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+// Auto-switch to chat when navigating back to it
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') showPanel('chat', null);
+});
