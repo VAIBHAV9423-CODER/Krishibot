@@ -3,539 +3,603 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🌾 {{ app_name }} — IBM watsonx.ai</title>
+  <title>KrishiBot – Smart Farming Advice Agent</title>
+  <meta name="description" content="AI-powered farming advisor for Indian farmers – crop, soil, pest, fertilizer, irrigation, market and government scheme guidance." />
 
   <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <!-- Bootstrap Icons -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <!-- Font Awesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
   <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <!-- Custom CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
 
-<!-- ════════════════════════════════════════════════════════
-     NAVBAR
-════════════════════════════════════════════════════════ -->
-<nav class="navbar navbar-expand-lg sticky-top" id="mainNavbar">
-  <div class="container-fluid px-3 px-lg-4">
-
-    <!-- Brand -->
+<!-- ╔══════════════ TOP NAVBAR ══════════════╗ -->
+<nav class="navbar navbar-expand-lg navbar-krishibot sticky-top" id="mainNavbar">
+  <div class="container-fluid px-3">
     <a class="navbar-brand d-flex align-items-center gap-2" href="#">
-      <span class="brand-icon"><i class="bi bi-flower2"></i></span>
-      <span class="brand-text">KrishiBot <small class="brand-sub">Smart Farming Advisor</small></span>
+      <div class="brand-icon">🌾</div>
+      <div>
+        <span class="brand-name">KrishiBot</span>
+        <span class="brand-tagline d-none d-sm-inline">Smart Farming Advisor</span>
+      </div>
     </a>
 
-    <!-- Right controls (mobile) -->
-    <div class="d-flex align-items-center gap-2 ms-auto me-2 d-lg-none">
-      <button class="btn btn-icon" id="darkModeToggleMobile" title="Toggle dark mode">
-        <i class="bi bi-moon-stars-fill"></i>
-      </button>
-      <button class="navbar-toggler border-0 p-1" type="button" data-bs-toggle="collapse"
-              data-bs-target="#navbarMenu" aria-label="Toggle navigation">
-        <i class="bi bi-list fs-4"></i>
-      </button>
-    </div>
+    <div class="d-flex align-items-center gap-2 ms-auto">
+      <!-- Language selector -->
+      <select class="form-select form-select-sm lang-select" id="languageSelect" title="Select Language">
+        <option value="en">🇬🇧 English</option>
+        <option value="hi">🇮🇳 हिंदी</option>
+        <option value="te">తెలుగు</option>
+        <option value="ta">தமிழ்</option>
+        <option value="kn">ಕನ್ನಡ</option>
+        <option value="mr">मराठी</option>
+        <option value="pa">ਪੰਜਾਬੀ</option>
+        <option value="bn">বাংলা</option>
+        <option value="gu">ગુજરાતી</option>
+      </select>
 
-    <!-- Nav Links -->
-    <div class="collapse navbar-collapse" id="navbarMenu">
-      <ul class="navbar-nav ms-auto align-items-lg-center gap-1">
-        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('dashboard')"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('chat')"><i class="bi bi-chat-dots me-1"></i>Ask KrishiBot</a></li>
-        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('weather')"><i class="bi bi-cloud-sun me-1"></i>Weather</a></li>
-        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('mandi')"><i class="bi bi-graph-up-arrow me-1"></i>Mandi Prices</a></li>
-        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('schemes')"><i class="bi bi-bank me-1"></i>Govt Schemes</a></li>
-        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('pests')"><i class="bi bi-bug me-1"></i>Pest Guide</a></li>
-        <li class="nav-item d-none d-lg-block ms-2">
-          <button class="btn btn-icon" id="darkModeToggle" title="Toggle dark mode">
-            <i class="bi bi-moon-stars-fill"></i>
-          </button>
-        </li>
-      </ul>
+      <!-- Status indicator -->
+      <div class="status-badge" id="statusBadge" title="System Status">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text d-none d-md-inline" id="statusText">Connecting…</span>
+      </div>
+
+      <!-- Dark mode toggle -->
+      <button class="btn btn-icon" id="darkModeBtn" title="Toggle dark mode">
+        <i class="fa-solid fa-moon" id="darkModeIcon"></i>
+      </button>
     </div>
   </div>
 </nav>
 
-<!-- ════════════════════════════════════════════════════════
-     HERO BANNER
-════════════════════════════════════════════════════════ -->
-<div class="hero-banner" id="heroBanner">
-  <div class="hero-overlay"></div>
-  <div class="container-fluid px-3 px-lg-5 position-relative z-1">
-    <div class="row align-items-center min-vh-40">
-      <div class="col-lg-7">
-        <div class="hero-badge mb-3"><i class="bi bi-stars me-2"></i>Powered by IBM Granite AI</div>
-        <h1 class="hero-title">Smart Farming<br><span class="text-accent">Advice at Your Fingertips</span></h1>
-        <p class="hero-subtitle">Your AI-powered Krishi Mitra — get personalized crop advice, weather insights, mandi prices &amp; government schemes in one place.</p>
-        <div class="d-flex flex-wrap gap-3 mt-4">
-          <button class="btn btn-primary-custom btn-lg" onclick="showSection('chat')">
-            <i class="bi bi-chat-dots-fill me-2"></i>Ask KrishiBot
+<!-- ╔══════════════ MAIN LAYOUT ══════════════╗ -->
+<div class="main-layout">
+
+  <!-- ─── LEFT SIDEBAR ─────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-content">
+
+      <!-- Greeting card -->
+      <div class="greeting-card">
+        <div class="greeting-avatar">🧑‍🌾</div>
+        <div class="greeting-text">
+          <div class="greeting-hello" id="greetingText">Namaste, Kisan!</div>
+          <div class="greeting-date" id="greetingDate"></div>
+        </div>
+      </div>
+
+      <!-- Quick Navigation -->
+      <div class="sidebar-section">
+        <div class="sidebar-label">QUICK ACCESS</div>
+        <nav class="sidebar-nav">
+          <button class="sidebar-nav-item active" data-panel="chat" onclick="showPanel('chat', this)">
+            <i class="fa-solid fa-comments"></i> <span>Chat Advisor</span>
           </button>
-          <button class="btn btn-outline-custom btn-lg" onclick="showSection('dashboard')">
-            <i class="bi bi-speedometer2 me-2"></i>View Dashboard
+          <button class="sidebar-nav-item" data-panel="weather" onclick="showPanel('weather', this)">
+            <i class="fa-solid fa-cloud-sun"></i> <span>Weather</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="crops" onclick="showPanel('crops', this)">
+            <i class="fa-solid fa-seedling"></i> <span>Crop Advisor</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="soil" onclick="showPanel('soil', this)">
+            <i class="fa-solid fa-layer-group"></i> <span>Soil Health</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="pest" onclick="showPanel('pest', this)">
+            <i class="fa-solid fa-bug"></i> <span>Pest & Disease</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="fertilizer" onclick="showPanel('fertilizer', this)">
+            <i class="fa-solid fa-flask"></i> <span>Fertilizer</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="irrigation" onclick="showPanel('irrigation', this)">
+            <i class="fa-solid fa-droplet"></i> <span>Irrigation</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="market" onclick="showPanel('market', this)">
+            <i class="fa-solid fa-chart-line"></i> <span>Market Prices</span>
+          </button>
+          <button class="sidebar-nav-item" data-panel="schemes" onclick="showPanel('schemes', this)">
+            <i class="fa-solid fa-landmark"></i> <span>Gov. Schemes</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Kisan Helpline -->
+      <div class="helpline-card">
+        <div class="helpline-title"><i class="fa-solid fa-phone"></i> Kisan Helpline</div>
+        <div class="helpline-number">1800-180-1551</div>
+        <div class="helpline-subtitle">Toll-Free • 24×7</div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ─── MAIN CONTENT ──────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- ══════════ PANEL: CHAT ══════════ -->
+    <section class="panel active" id="panel-chat">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-comments"></i> KrishiBot – AI Farming Advisor</h2>
+        <div class="panel-actions">
+          <button class="btn btn-sm btn-outline-secondary" onclick="clearChat()" title="Clear conversation">
+            <i class="fa-solid fa-trash"></i> Clear
           </button>
         </div>
-        <!-- Stats row -->
-        <div class="hero-stats mt-4 d-flex flex-wrap gap-4">
-          <div class="stat-item"><span class="stat-num">8+</span><span class="stat-label">Crops Covered</span></div>
-          <div class="stat-item"><span class="stat-num">10+</span><span class="stat-label">Govt Schemes</span></div>
-          <div class="stat-item"><span class="stat-num">24/7</span><span class="stat-label">AI Support</span></div>
-        </div>
-      </div>
-      <div class="col-lg-5 d-none d-lg-flex justify-content-end">
-        <div class="hero-illustration">
-          <div class="hero-circle hero-circle-1"></div>
-          <div class="hero-circle hero-circle-2"></div>
-          <div class="hero-icon-grid">
-            <span class="hi hi-1"><i class="bi bi-droplet-fill"></i></span>
-            <span class="hi hi-2"><i class="bi bi-sun-fill"></i></span>
-            <span class="hi hi-3"><i class="bi bi-flower1"></i></span>
-            <span class="hi hi-4"><i class="bi bi-thermometer-half"></i></span>
-            <span class="hi hi-5"><i class="bi bi-cloud-rain-fill"></i></span>
-            <span class="hi hi-6"><i class="bi bi-graph-up"></i></span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════
-     QUICK CROP SELECTOR
-════════════════════════════════════════════════════════ -->
-<div class="crop-selector-bar py-3" id="cropSelectorBar">
-  <div class="container-fluid px-3 px-lg-5">
-    <div class="d-flex align-items-center gap-2 flex-wrap">
-      <span class="text-muted small fw-semibold me-2"><i class="bi bi-seedling me-1"></i>Quick Select:</span>
-      <div id="cropChips" class="d-flex gap-2 flex-wrap"></div>
-      <div class="ms-auto d-flex align-items-center gap-2">
-        <label class="text-muted small mb-0">City:</label>
-        <input type="text" id="cityInput" class="form-control form-control-sm" placeholder="Enter city" style="width:130px;" value="Delhi" />
-        <button class="btn btn-sm btn-success-custom" onclick="refreshWeather()">
-          <i class="bi bi-arrow-clockwise"></i>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════
-     MAIN CONTENT AREA
-════════════════════════════════════════════════════════ -->
-<main class="main-content" id="mainContent">
-  <div class="container-fluid px-3 px-lg-5 py-4">
-
-    <!-- ── DASHBOARD SECTION ── -->
-    <section id="section-dashboard" class="content-section active fade-in">
-      <div class="section-header mb-4">
-        <h2><i class="bi bi-speedometer2 me-2 text-accent"></i>Farm Dashboard</h2>
-        <p class="text-muted">Real-time overview of your farm health, weather, and market data</p>
       </div>
 
-      <!-- Metric Cards Row -->
-      <div class="row g-3 mb-4" id="dashboardCards">
-        <div class="col-6 col-lg-3">
-          <div class="metric-card" id="cardSoilHealth">
-            <div class="metric-icon bg-brown"><i class="bi bi-layers-fill"></i></div>
-            <div class="metric-body">
-              <div class="metric-value" id="soilScore">74</div>
-              <div class="metric-label">Soil Health</div>
-              <div class="metric-bar"><div class="metric-bar-fill bg-brown" style="width:74%"></div></div>
-            </div>
-          </div>
+      <!-- Quick queries -->
+      <div class="quick-queries-bar" id="quickQueriesBar">
+        <div class="quick-queries-scroll" id="quickQueriesScroll">
+          <div class="quick-query-loading">Loading suggestions…</div>
         </div>
-        <div class="col-6 col-lg-3">
-          <div class="metric-card" id="cardCropHealth">
-            <div class="metric-icon bg-green"><i class="bi bi-flower2"></i></div>
-            <div class="metric-body">
-              <div class="metric-value" id="cropScore">81</div>
-              <div class="metric-label">Crop Health</div>
-              <div class="metric-bar"><div class="metric-bar-fill bg-green" style="width:81%"></div></div>
+      </div>
+
+      <!-- Chat window -->
+      <div class="chat-window" id="chatWindow">
+        <!-- Welcome message -->
+        <div class="chat-message bot-message" id="welcomeMessage">
+          <div class="msg-avatar bot-avatar">🌾</div>
+          <div class="msg-bubble">
+            <div class="msg-content">
+              <p><strong>Namaste! 🙏 I'm KrishiBot, your AI farming advisor.</strong></p>
+              <p>I can help you with:</p>
+              <ul>
+                <li>🌱 Crop selection and cultivation advice</li>
+                <li>🪲 Pest and disease identification & treatment</li>
+                <li>💧 Irrigation planning and water management</li>
+                <li>🌱 Soil health analysis and fertilizer advice</li>
+                <li>💰 Market prices and government schemes</li>
+                <li>🌿 Organic and sustainable farming practices</li>
+              </ul>
+              <p>Type your farming question below, or click a quick query above to get started!</p>
+              <p><em>आप हिंदी में भी पूछ सकते हैं। 🇮🇳</em></p>
             </div>
-          </div>
-        </div>
-        <div class="col-6 col-lg-3">
-          <div class="metric-card" id="cardTemp">
-            <div class="metric-icon bg-orange"><i class="bi bi-thermometer-half"></i></div>
-            <div class="metric-body">
-              <div class="metric-value" id="tempVal">--</div>
-              <div class="metric-label">Temperature</div>
-              <div class="metric-sub" id="tempSub">Loading...</div>
-            </div>
-          </div>
-        </div>
-        <div class="col-6 col-lg-3">
-          <div class="metric-card" id="cardHumidity">
-            <div class="metric-icon bg-blue"><i class="bi bi-droplet-fill"></i></div>
-            <div class="metric-body">
-              <div class="metric-value" id="humidityVal">--</div>
-              <div class="metric-label">Humidity</div>
-              <div class="metric-sub" id="humiditySub">Loading...</div>
-            </div>
+            <div class="msg-time">Just now</div>
           </div>
         </div>
       </div>
 
-      <!-- Second Row: Crop Info + Mandi + Weather Advisory -->
-      <div class="row g-3 mb-4">
-        <!-- Crop Information Card -->
-        <div class="col-lg-4">
-          <div class="info-card h-100">
-            <div class="info-card-header">
-              <i class="bi bi-seedling-fill me-2"></i>Crop Information
-              <span class="badge bg-accent ms-auto" id="currentCropBadge">Wheat</span>
-            </div>
-            <div class="info-card-body" id="cropInfoBody">
-              <div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div>
-            </div>
+      <!-- Chat input -->
+      <div class="chat-input-area">
+        <div class="chat-input-wrapper">
+          <textarea
+            class="chat-input"
+            id="chatInput"
+            placeholder="Ask me anything about farming… e.g., 'What fertilizer for wheat in rabi season?'"
+            rows="1"
+            maxlength="1000"
+          ></textarea>
+          <div class="chat-input-actions">
+            <span class="char-counter" id="charCounter">0/1000</span>
+            <button class="btn-send" id="sendBtn" onclick="sendMessage()" title="Send message">
+              <i class="fa-solid fa-paper-plane"></i>
+            </button>
           </div>
         </div>
-
-        <!-- Mandi Price Card -->
-        <div class="col-lg-4">
-          <div class="info-card h-100">
-            <div class="info-card-header">
-              <i class="bi bi-graph-up-arrow me-2"></i>Mandi Prices
-            </div>
-            <div class="info-card-body" id="mandiBody">
-              <div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Weather Advisory Card -->
-        <div class="col-lg-4">
-          <div class="info-card h-100">
-            <div class="info-card-header">
-              <i class="bi bi-cloud-sun-fill me-2"></i>Weather Advisory
-            </div>
-            <div class="info-card-body" id="weatherBody">
-              <div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Third Row: Seasonal Tips + Govt Schemes -->
-      <div class="row g-3">
-        <div class="col-lg-6">
-          <div class="info-card">
-            <div class="info-card-header">
-              <i class="bi bi-calendar3-fill me-2"></i>Seasonal Tips
-              <span class="badge bg-season ms-auto" id="seasonBadge">Loading...</span>
-            </div>
-            <div class="info-card-body" id="seasonalTipsBody">
-              <div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div>
-            </div>
-          </div>
-        </div>
-        <div class="col-lg-6">
-          <div class="info-card">
-            <div class="info-card-header"><i class="bi bi-bank-fill me-2"></i>Key Government Schemes</div>
-            <div class="info-card-body" id="schemesPreviewBody">
-              <div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div>
-            </div>
-          </div>
+        <div class="chat-footer-info">
+          <i class="fa-solid fa-microchip"></i>
+          <span id="modelInfo">IBM Granite • RAG-powered • watsonx.ai</span>
         </div>
       </div>
     </section>
 
-    <!-- ── CHAT SECTION ── -->
-    <section id="section-chat" class="content-section fade-in">
-      <div class="row g-3 justify-content-center">
-        <div class="col-lg-9 col-xl-8">
-          <!-- Chat Card -->
-          <div class="chat-card">
-            <div class="chat-header">
-              <div class="chat-avatar"><i class="bi bi-robot"></i></div>
-              <div>
-                <div class="chat-header-name">KrishiBot</div>
-                <div class="chat-header-sub"><span class="status-dot"></span> Online — IBM Granite AI</div>
-              </div>
-              <div class="ms-auto d-flex gap-2">
-                <button class="btn btn-icon-sm" onclick="clearChat()" title="Clear chat">
-                  <i class="bi bi-trash3"></i>
-                </button>
-                <button class="btn btn-icon-sm" onclick="exportChat()" title="Export chat">
-                  <i class="bi bi-download"></i>
-                </button>
-              </div>
-            </div>
+    <!-- ══════════ PANEL: WEATHER ══════════ -->
+    <section class="panel" id="panel-weather">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-cloud-sun"></i> Weather Dashboard</h2>
+      </div>
+      <div class="panel-body">
 
-            <!-- Messages -->
-            <div class="chat-messages" id="chatMessages">
-              <!-- Welcome message -->
-              <div class="message message-bot fade-slide-up">
-                <div class="message-avatar"><i class="bi bi-robot"></i></div>
-                <div class="message-content">
-                  <div class="message-bubble">
-                    <p>🌾 <strong>Namaskar! I'm KrishiBot</strong>, your AI-powered Krishi Mitra!</p>
-                    <p>I'm here to help you with:</p>
-                    <ul class="mb-1">
-                      <li>🌱 Crop management &amp; sowing advice</li>
-                      <li>💧 Irrigation &amp; fertilizer guidance</li>
-                      <li>🐛 Pest &amp; disease identification</li>
-                      <li>🌤️ Weather-based farming tips</li>
-                      <li>💰 Mandi prices &amp; market trends</li>
-                      <li>🏛️ Government scheme information</li>
-                    </ul>
-                    <p class="mb-0">Tell me about your <strong>crop, location, and farming challenge</strong> — I'll give you personalized advice!</p>
-                  </div>
-                  <div class="message-time">Just now</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Quick Questions -->
-            <div class="quick-questions" id="quickQuestions">
-              <div class="quick-q-label"><i class="bi bi-lightning-fill me-1"></i>Quick Questions</div>
-              <div class="d-flex flex-wrap gap-2">
-                <button class="quick-q-btn" onclick="sendQuickQ('What crops should I sow this season?')">What crops to sow this season?</button>
-                <button class="quick-q-btn" onclick="sendQuickQ('My wheat crop has yellow leaves. What is the problem?')">Yellow leaves in wheat?</button>
-                <button class="quick-q-btn" onclick="sendQuickQ('Best fertilizer schedule for rice crop')">Fertilizer for rice</button>
-                <button class="quick-q-btn" onclick="sendQuickQ('How to apply for PM-KISAN scheme?')">PM-KISAN scheme</button>
-                <button class="quick-q-btn" onclick="sendQuickQ('Drip irrigation setup cost and benefits')">Drip irrigation</button>
-                <button class="quick-q-btn" onclick="sendQuickQ('Organic farming tips for small farmers')">Organic farming</button>
-              </div>
-            </div>
-
-            <!-- Input -->
-            <div class="chat-input-area">
-              <div class="input-wrapper">
-                <textarea id="chatInput" class="chat-textarea" placeholder="Ask about crops, soil, pests, weather, schemes... (Hindi / English)" rows="1"
-                  onkeydown="handleChatKey(event)" oninput="autoResizeTextarea(this)"></textarea>
-                <div class="input-actions">
-                  <button class="btn btn-icon-sm" id="voiceBtn" onclick="toggleVoiceInput()" title="Voice input">
-                    <i class="bi bi-mic-fill"></i>
-                  </button>
-                  <button class="btn btn-send" id="sendBtn" onclick="sendMessage()">
-                    <i class="bi bi-send-fill"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="input-hint">Powered by <strong>IBM Granite</strong> via <strong>IBM watsonx.ai</strong></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Sidebar: Context Panel -->
-        <div class="col-lg-3 col-xl-4 d-none d-lg-block">
-          <div class="info-card mb-3">
-            <div class="info-card-header"><i class="bi bi-info-circle-fill me-2"></i>Farming Context</div>
-            <div class="info-card-body">
-              <div class="mb-3">
-                <label class="form-label small fw-semibold">Selected Crop</label>
-                <select class="form-select form-select-sm" id="contextCrop" onchange="updateContext()">
-                  <option value="wheat">Wheat</option>
-                  <option value="rice">Rice</option>
-                  <option value="maize">Maize</option>
-                  <option value="cotton">Cotton</option>
-                  <option value="tomato">Tomato</option>
-                  <option value="potato">Potato</option>
-                  <option value="onion">Onion</option>
-                  <option value="soybean">Soybean</option>
-                </select>
-              </div>
-              <div class="mb-3">
-                <label class="form-label small fw-semibold">Your Location</label>
-                <input type="text" class="form-control form-control-sm" id="contextLocation" placeholder="State / District" value="Punjab" />
-              </div>
-              <div class="mb-3">
-                <label class="form-label small fw-semibold">Soil Type</label>
-                <select class="form-select form-select-sm" id="contextSoil">
-                  <option>Loamy</option>
-                  <option>Sandy</option>
-                  <option>Clay</option>
-                  <option>Black Cotton</option>
-                  <option>Red Laterite</option>
-                  <option>Alluvial</option>
-                </select>
-              </div>
-              <button class="btn btn-success-custom btn-sm w-100" onclick="sendContextMessage()">
-                <i class="bi bi-chat-text me-1"></i>Get Personalized Advice
+        <!-- City search -->
+        <div class="row mb-4">
+          <div class="col-md-6">
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa-solid fa-location-dot"></i></span>
+              <input type="text" class="form-control" id="weatherCity" placeholder="Enter city name…" value="New Delhi" />
+              <button class="btn btn-primary" onclick="loadWeather()">
+                <i class="fa-solid fa-search"></i> Search
               </button>
             </div>
           </div>
+        </div>
 
-          <!-- AI Tip Card -->
-          <div class="info-card">
-            <div class="info-card-header"><i class="bi bi-lightbulb-fill me-2"></i>AI Quick Tip</div>
-            <div class="info-card-body" id="aiTipBody">
-              <div class="spinner-custom"><div class="spinner-border text-success spinner-border-sm" role="status"></div></div>
-            </div>
+        <!-- Weather cards -->
+        <div class="row g-3" id="weatherCards">
+          <div class="col-12 text-center text-muted py-5">
+            <div class="spinner-border text-success" role="status"></div>
+            <p class="mt-2">Loading weather data…</p>
+          </div>
+        </div>
+
+        <!-- Farming alert -->
+        <div class="farming-alert-box mt-3" id="farmingAlert" style="display:none"></div>
+
+        <!-- Weather chart -->
+        <div class="card mt-4">
+          <div class="card-header"><i class="fa-solid fa-chart-bar"></i> Climate Suitability for Major Crops</div>
+          <div class="card-body">
+            <canvas id="weatherChart" height="120"></canvas>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ── WEATHER SECTION ── -->
-    <section id="section-weather" class="content-section fade-in">
-      <div class="section-header mb-4">
-        <h2><i class="bi bi-cloud-sun-fill me-2 text-accent"></i>Weather Updates</h2>
-        <p class="text-muted">Real-time weather data and farming advisories based on your location</p>
+    <!-- ══════════ PANEL: CROPS ══════════ -->
+    <section class="panel" id="panel-crops">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-seedling"></i> Crop Recommendation Advisor</h2>
       </div>
-      <div class="row g-3">
-        <!-- Weather Search -->
-        <div class="col-12">
-          <div class="info-card">
-            <div class="info-card-body">
-              <div class="d-flex gap-2 align-items-center flex-wrap">
-                <i class="bi bi-geo-alt-fill text-accent"></i>
-                <input type="text" id="weatherCitySearch" class="form-control" placeholder="Enter city name..." style="max-width:300px;" />
-                <button class="btn btn-success-custom" onclick="loadWeather()"><i class="bi bi-search me-1"></i>Search</button>
-                <span class="text-muted small ms-auto" id="weatherUpdatedAt"></span>
+      <div class="panel-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Season</label>
+            <select class="form-select" id="cropSeason">
+              <option value="">-- Select Season --</option>
+              <option value="Kharif">Kharif (June–November)</option>
+              <option value="Rabi">Rabi (October–March)</option>
+              <option value="Zaid">Zaid (March–June)</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Soil Type</label>
+            <select class="form-select" id="cropSoil">
+              <option value="">-- Select Soil Type --</option>
+              <option value="Alluvial">Alluvial</option>
+              <option value="Black Cotton">Black Cotton (Regur)</option>
+              <option value="Red">Red & Yellow</option>
+              <option value="Laterite">Laterite</option>
+              <option value="Sandy">Sandy</option>
+              <option value="Loamy">Loamy</option>
+              <option value="Clay">Clay</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">State</label>
+            <select class="form-select" id="cropState">
+              <option value="">-- Select State --</option>
+              <option>Punjab</option><option>Haryana</option><option>Uttar Pradesh</option>
+              <option>Madhya Pradesh</option><option>Maharashtra</option><option>Gujarat</option>
+              <option>Rajasthan</option><option>West Bengal</option><option>Andhra Pradesh</option>
+              <option>Telangana</option><option>Karnataka</option><option>Tamil Nadu</option>
+              <option>Bihar</option><option>Odisha</option><option>Assam</option>
+              <option>Himachal Pradesh</option><option>Kerala</option><option>Jharkhand</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-success btn-lg mb-4" onclick="loadCropRecommendations()">
+          <i class="fa-solid fa-seedling"></i> Get Crop Recommendations
+        </button>
+
+        <div id="cropRecommendationsResult"></div>
+
+        <!-- Crop calendar chart -->
+        <div class="card mt-4">
+          <div class="card-header"><i class="fa-solid fa-calendar-days"></i> Crop Season Calendar</div>
+          <div class="card-body">
+            <canvas id="cropCalendarChart" height="160"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ PANEL: SOIL ══════════ -->
+    <section class="panel" id="panel-soil">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-layer-group"></i> Soil Health Advisor</h2>
+      </div>
+      <div class="panel-body">
+        <!-- Soil pH Calculator -->
+        <div class="card mb-4">
+          <div class="card-header"><i class="fa-solid fa-flask-vial"></i> Soil pH & Health Check</div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-3">
+                <label class="form-label">Soil pH Value</label>
+                <input type="number" class="form-control" id="soilPH" placeholder="e.g. 6.5" min="0" max="14" step="0.1" />
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Organic Carbon (%)</label>
+                <input type="number" class="form-control" id="soilOC" placeholder="e.g. 0.6" min="0" max="5" step="0.1" />
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Soil Type</label>
+                <select class="form-select" id="soilTypeInput">
+                  <option value="">Select…</option>
+                  <option>Alluvial</option><option>Black Cotton</option>
+                  <option>Red & Yellow</option><option>Laterite</option><option>Sandy</option>
+                </select>
+              </div>
+              <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-success w-100" onclick="analyzeSoil()">
+                  <i class="fa-solid fa-magnifying-glass-chart"></i> Analyze
+                </button>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Weather Data -->
-        <div class="col-md-5 col-lg-4">
-          <div class="weather-main-card" id="weatherMainCard">
-            <div class="spinner-custom"><div class="spinner-border text-white" role="status"></div></div>
+        <div id="soilAnalysisResult"></div>
+
+        <!-- Soil nutrient chart -->
+        <div class="card mt-4">
+          <div class="card-header"><i class="fa-solid fa-chart-pie"></i> Soil Nutrient Status Visualization</div>
+          <div class="card-body">
+            <canvas id="soilNutrientChart" height="220"></canvas>
           </div>
         </div>
-        <div class="col-md-7 col-lg-8">
-          <div class="info-card h-100">
-            <div class="info-card-header"><i class="bi bi-journal-text me-2"></i>Farming Advisory</div>
-            <div class="info-card-body" id="weatherAdvisoryBody">
-              <div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div>
+      </div>
+    </section>
+
+    <!-- ══════════ PANEL: PEST ══════════ -->
+    <section class="panel" id="panel-pest">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-bug"></i> Pest & Disease Detection Guide</h2>
+      </div>
+      <div class="panel-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">Select Crop</label>
+            <select class="form-select" id="pestCrop" onchange="loadPestInfo()">
+              <option value="">-- Select Crop --</option>
+              <option>Rice</option><option>Wheat</option><option>Maize</option>
+              <option>Cotton</option><option>Tomato</option><option>Sugarcane</option>
+              <option>Soybean</option><option>Potato</option><option>Groundnut</option>
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">Problem Type</label>
+            <select class="form-select" id="problemType" onchange="loadPestInfo()">
+              <option value="both">Both Pest & Disease</option>
+              <option value="pest">Pests Only</option>
+              <option value="disease">Diseases Only</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="pestInfoResult">
+          <div class="info-placeholder text-center py-5 text-muted">
+            <i class="fa-solid fa-bug fa-3x mb-3 opacity-25"></i>
+            <p>Select a crop to see pest and disease information, symptoms, and management strategies.</p>
+          </div>
+        </div>
+
+        <!-- IPM principles -->
+        <div class="card mt-4 ipm-card">
+          <div class="card-header"><i class="fa-solid fa-shield-halved"></i> IPM Principles – Integrated Pest Management</div>
+          <div class="card-body">
+            <div class="ipm-steps" id="ipmSteps">
+              <div class="ipm-step"><span class="ipm-num">1</span> Monitor fields twice weekly during critical periods</div>
+              <div class="ipm-step"><span class="ipm-num">2</span> Correctly identify pest before taking action</div>
+              <div class="ipm-step"><span class="ipm-num">3</span> Check Economic Threshold Level (ETL) before spraying</div>
+              <div class="ipm-step"><span class="ipm-num">4</span> Cultural methods first: crop rotation, resistant varieties</div>
+              <div class="ipm-step"><span class="ipm-num">5</span> Biological controls: Trichogramma, Bt, HaNPV, natural enemies</div>
+              <div class="ipm-step"><span class="ipm-num">6</span> Chemical pesticides as last resort – rotate groups to prevent resistance</div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ── MANDI PRICES SECTION ── -->
-    <section id="section-mandi" class="content-section fade-in">
-      <div class="section-header mb-4">
-        <h2><i class="bi bi-graph-up-arrow me-2 text-accent"></i>Mandi (Market) Prices</h2>
-        <p class="text-muted">Current Minimum Support Prices and market trends across India</p>
+    <!-- ══════════ PANEL: FERTILIZER ══════════ -->
+    <section class="panel" id="panel-fertilizer">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-flask"></i> Fertilizer Recommendation System</h2>
       </div>
-      <div class="row g-3">
-        <div class="col-12">
-          <div class="info-card">
-            <div class="info-card-header"><i class="bi bi-table me-2"></i>Live Crop Prices (MSP / Mandi)</div>
-            <div class="info-card-body">
-              <div class="table-responsive" id="mandiTableContainer">
-                <div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div>
+      <div class="panel-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Crop</label>
+            <select class="form-select" id="fertCrop">
+              <option value="">Select Crop</option>
+              <option>Rice</option><option>Wheat</option><option>Maize</option>
+              <option>Cotton</option><option>Sugarcane</option><option>Soybean</option>
+              <option>Tomato</option><option>Potato</option><option>Groundnut</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Farming Method</label>
+            <select class="form-select" id="fertMethod">
+              <option value="conventional">Conventional</option>
+              <option value="organic">Organic / Natural</option>
+              <option value="integrated">Integrated (INM)</option>
+            </select>
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <button class="btn btn-success w-100" onclick="getFertilizerAdvice()">
+              <i class="fa-solid fa-flask"></i> Get Recommendations
+            </button>
+          </div>
+        </div>
+
+        <div id="fertilizerResult"></div>
+
+        <!-- Fertilizer comparison chart -->
+        <div class="card mt-4">
+          <div class="card-header"><i class="fa-solid fa-chart-bar"></i> NPK Requirements of Major Crops (kg/ha)</div>
+          <div class="card-body">
+            <canvas id="fertChart" height="160"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ PANEL: IRRIGATION ══════════ -->
+    <section class="panel" id="panel-irrigation">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-droplet"></i> Irrigation Planner</h2>
+      </div>
+      <div class="panel-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Crop</label>
+            <select class="form-select" id="irrigCrop">
+              <option value="">Select Crop</option>
+              <option>Rice</option><option>Wheat</option><option>Maize</option>
+              <option>Cotton</option><option>Sugarcane</option><option>Tomato</option>
+              <option>Potato</option><option>Groundnut</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Irrigation System</label>
+            <select class="form-select" id="irrigSystem">
+              <option value="drip">Drip Irrigation</option>
+              <option value="sprinkler">Sprinkler</option>
+              <option value="flood">Flood / Furrow</option>
+            </select>
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <button class="btn btn-success w-100" onclick="getIrrigationPlan()">
+              <i class="fa-solid fa-calendar-check"></i> Get Irrigation Plan
+            </button>
+          </div>
+        </div>
+
+        <div id="irrigationResult"></div>
+
+        <!-- Irrigation efficiency chart -->
+        <div class="card mt-4">
+          <div class="card-header"><i class="fa-solid fa-chart-pie"></i> Irrigation System Water Efficiency Comparison</div>
+          <div class="card-body row">
+            <div class="col-md-5">
+              <canvas id="irrigChart" height="220"></canvas>
+            </div>
+            <div class="col-md-7 d-flex align-items-center">
+              <div class="irrigation-facts">
+                <div class="fact-item"><i class="fa-solid fa-droplet text-primary"></i> <strong>Drip:</strong> 90–95% efficiency – saves 40–60% water</div>
+                <div class="fact-item"><i class="fa-solid fa-cloud-rain text-info"></i> <strong>Sprinkler:</strong> 75–85% efficiency – saves 30–50% water</div>
+                <div class="fact-item"><i class="fa-solid fa-water text-warning"></i> <strong>Flood:</strong> 40–50% efficiency – traditional method</div>
+                <div class="fact-item mt-3 text-success"><i class="fa-solid fa-rupee-sign"></i> <strong>PMKSY Subsidy:</strong> 55–80% for drip/sprinkler installation</div>
               </div>
             </div>
           </div>
         </div>
-        <div class="col-12">
-          <div class="info-card">
-            <div class="info-card-header"><i class="bi bi-info-circle me-2"></i>Market Tips &amp; Selling Guide</div>
-            <div class="info-card-body">
-              <div class="row g-3">
-                <div class="col-md-4">
-                  <div class="tip-card tip-blue">
-                    <i class="bi bi-clock-fill"></i>
-                    <strong>Best Time to Sell</strong>
-                    <p>Sell 30–45 days after harvest when bulk selling pressure reduces and prices stabilize.</p>
-                  </div>
-                </div>
-                <div class="col-md-4">
-                  <div class="tip-card tip-green">
-                    <i class="bi bi-phone-fill"></i>
-                    <strong>e-NAM Platform</strong>
-                    <p>Register on e-NAM (enam.gov.in) for transparent online bidding across 1,000+ mandis.</p>
-                  </div>
-                </div>
-                <div class="col-md-4">
-                  <div class="tip-card tip-orange">
-                    <i class="bi bi-box-seam-fill"></i>
-                    <strong>Storage &amp; Grading</strong>
-                    <p>Proper grading and storage in warehouses can fetch 15–20% premium over raw field sales.</p>
-                  </div>
-                </div>
-              </div>
+      </div>
+    </section>
+
+    <!-- ══════════ PANEL: MARKET ══════════ -->
+    <section class="panel" id="panel-market">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-chart-line"></i> Market Price Information</h2>
+      </div>
+      <div class="panel-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <div class="stat-card-mini">
+              <i class="fa-solid fa-wheat-awn"></i>
+              <div class="stat-val" id="mspWheat">₹2,275</div>
+              <div class="stat-lbl">Wheat MSP/quintal</div>
             </div>
+          </div>
+          <div class="col-md-4">
+            <div class="stat-card-mini">
+              <i class="fa-solid fa-seedling"></i>
+              <div class="stat-val" id="mspPaddy">₹2,300</div>
+              <div class="stat-lbl">Paddy MSP/quintal</div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="stat-card-mini">
+              <i class="fa-solid fa-circle-nodes"></i>
+              <div class="stat-val" id="mspSoybean">₹4,892</div>
+              <div class="stat-lbl">Soybean MSP/quintal</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MSP Tables -->
+        <div id="marketPricesResult">
+          <div class="text-center text-muted py-4">
+            <div class="spinner-border text-success" role="status"></div>
+            <p class="mt-2">Loading MSP data…</p>
+          </div>
+        </div>
+
+        <!-- Market price trend chart -->
+        <div class="card mt-4">
+          <div class="card-header"><i class="fa-solid fa-chart-line"></i> MSP Trend – Selected Kharif Crops (₹/quintal)</div>
+          <div class="card-body">
+            <canvas id="marketChart" height="160"></canvas>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ── GOVT SCHEMES SECTION ── -->
-    <section id="section-schemes" class="content-section fade-in">
-      <div class="section-header mb-4">
-        <h2><i class="bi bi-bank-fill me-2 text-accent"></i>Government Schemes for Farmers</h2>
-        <p class="text-muted">Central and state government welfare schemes, subsidies, and support programs</p>
+    <!-- ══════════ PANEL: SCHEMES ══════════ -->
+    <section class="panel" id="panel-schemes">
+      <div class="panel-header">
+        <h2><i class="fa-solid fa-landmark"></i> Government Schemes &amp; Subsidies</h2>
       </div>
-      <div class="row g-3" id="schemesGrid">
-        <div class="col-12"><div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div></div>
-      </div>
-    </section>
+      <div class="panel-body">
+        <div class="schemes-search mb-4">
+          <div class="input-group">
+            <span class="input-group-text"><i class="fa-solid fa-search"></i></span>
+            <input type="text" class="form-control" id="schemesSearch"
+                   placeholder="Search schemes (e.g., insurance, loan, subsidy)…"
+                   oninput="filterSchemes(this.value)" />
+          </div>
+        </div>
 
-    <!-- ── PEST GUIDE SECTION ── -->
-    <section id="section-pests" class="content-section fade-in">
-      <div class="section-header mb-4">
-        <h2><i class="bi bi-bug-fill me-2 text-accent"></i>Pest &amp; Disease Management</h2>
-        <p class="text-muted">Identify, treat, and prevent common crop pests and diseases</p>
-      </div>
-      <div class="row g-3 mb-4">
-        <div class="col-12">
-          <div class="info-card">
-            <div class="info-card-body">
-              <div class="d-flex gap-2 align-items-center flex-wrap">
-                <i class="bi bi-search text-accent"></i>
-                <input type="text" id="pestSearch" class="form-control" placeholder="Describe symptoms or pest name..." style="max-width:350px;" />
-                <button class="btn btn-success-custom" onclick="askAIPest()"><i class="bi bi-robot me-1"></i>Ask AI</button>
-                <span class="text-muted small">Or browse common pests below</span>
-              </div>
-            </div>
+        <div id="schemesResult">
+          <div class="text-center text-muted py-4">
+            <div class="spinner-border text-success" role="status"></div>
+            <p class="mt-2">Loading government schemes…</p>
           </div>
         </div>
       </div>
-      <div class="row g-3" id="pestGrid">
-        <div class="col-12"><div class="spinner-custom"><div class="spinner-border text-success" role="status"></div></div></div>
-      </div>
     </section>
 
-  </div><!-- /container -->
-</main>
+  </main>
 
-<!-- ════════════════════════════════════════════════════════
-     FLOATING CHAT BUTTON (on non-chat pages)
-════════════════════════════════════════════════════════ -->
-<button class="fab-chat" id="fabChat" onclick="showSection('chat')" title="Chat with KrishiBot" style="display:none;">
-  <i class="bi bi-chat-dots-fill"></i>
-  <span class="fab-pulse"></span>
-</button>
+</div><!-- /.main-layout -->
 
-<!-- ════════════════════════════════════════════════════════
-     TOAST NOTIFICATION
-════════════════════════════════════════════════════════ -->
-<div class="toast-container position-fixed bottom-0 end-0 p-3">
-  <div id="mainToast" class="toast align-items-center border-0" role="alert">
-    <div class="d-flex">
-      <div class="toast-body" id="toastMessage">Notification</div>
-      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
-    </div>
+<!-- ─── MOBILE BOTTOM NAV ─────────────────────────────────────────── -->
+<nav class="mobile-bottom-nav d-lg-none">
+  <button class="mobile-nav-btn active" data-panel="chat" onclick="showPanel('chat', this)">
+    <i class="fa-solid fa-comments"></i><span>Chat</span>
+  </button>
+  <button class="mobile-nav-btn" data-panel="weather" onclick="showPanel('weather', this)">
+    <i class="fa-solid fa-cloud-sun"></i><span>Weather</span>
+  </button>
+  <button class="mobile-nav-btn" data-panel="crops" onclick="showPanel('crops', this)">
+    <i class="fa-solid fa-seedling"></i><span>Crops</span>
+  </button>
+  <button class="mobile-nav-btn" data-panel="market" onclick="showPanel('market', this)">
+    <i class="fa-solid fa-chart-line"></i><span>Market</span>
+  </button>
+  <button class="mobile-nav-btn" data-panel="schemes" onclick="showPanel('schemes', this)">
+    <i class="fa-solid fa-landmark"></i><span>Schemes</span>
+  </button>
+</nav>
+
+<!-- ─── LOADING OVERLAY ──────────────────────────────────────────── -->
+<div class="loading-overlay" id="loadingOverlay" style="display:none">
+  <div class="loading-spinner">
+    <div class="spinner-circle"></div>
+    <div class="loading-text">KrishiBot is thinking… 🌾</div>
   </div>
 </div>
 
-<!-- ════════════════════════════════════════════════════════
-     FOOTER
-════════════════════════════════════════════════════════ -->
-<footer class="app-footer">
-  <div class="container-fluid px-3 px-lg-5">
-    <div class="row align-items-center">
-      <div class="col-md-6 text-center text-md-start mb-2 mb-md-0">
-        <span class="brand-icon small me-2"><i class="bi bi-flower2"></i></span>
-        <strong>KrishiBot</strong> — Smart Farming Advisor v{{ version }}
-      </div>
-      <div class="col-md-6 text-center text-md-end">
-        <span class="text-muted small">Powered by <strong>IBM Granite</strong> via <strong>IBM watsonx.ai</strong> &nbsp;|&nbsp; Built with ❤️ for Indian Farmers</span>
-      </div>
+<!-- ─── TOAST NOTIFICATIONS ─────────────────────────────────────── -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:9999">
+  <div id="liveToast" class="toast" role="alert">
+    <div class="toast-header">
+      <i class="fa-solid fa-circle-info text-success me-2"></i>
+      <strong class="me-auto">KrishiBot</strong>
+      <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
     </div>
+    <div class="toast-body" id="toastBody"></div>
   </div>
-</footer>
+</div>
 
-<!-- Scripts -->
+<!-- Bootstrap 5 JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<!-- Custom JS -->
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
 </body>
 </html>
